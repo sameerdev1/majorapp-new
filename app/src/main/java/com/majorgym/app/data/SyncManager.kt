@@ -120,6 +120,13 @@ class SyncManager(
                             if (peerCodeHash != codeHash) return
                             if (peerId == null || peerId == prefs.deviceId) return
                             if (!prefs.canAdd(peerId)) return
+                            // Only the device that sorts first by ID dials out; the other
+                            // side only accepts. Without this, both phones can each open a
+                            // separate connection to the other at the same time, and each
+                            // ends up talking on a different socket than its peer - one side
+                            // then blocks waiting for data that's arriving on the other,
+                            // unused connection ("Broken pipe" once it's torn down).
+                            if (prefs.deviceId >= peerId) return
                             if (!claimed.compareAndSet(false, true)) return
                             try {
                                 connectedSocket.complete(Socket(info.host, info.port))
@@ -139,6 +146,7 @@ class SyncManager(
             val socket = withTimeoutOrNull(timeoutMs) { connectedSocket.await() }
                 ?: return@withContext SyncOutcome.NotFound
 
+            socket.soTimeout = 10_000
             onStatus("Connected \u2014 exchanging records\u2026")
             performExchange(socket)
         } catch (e: Exception) {
@@ -177,6 +185,8 @@ class SyncManager(
 
             SyncOutcome.Success(peerName, incoming.size)
         }
+    } catch (e: java.net.SocketTimeoutException) {
+        SyncOutcome.Error("Timed out waiting for the other phone - try again")
     } catch (e: Exception) {
         SyncOutcome.Error(e.message ?: "Sync failed")
     }
