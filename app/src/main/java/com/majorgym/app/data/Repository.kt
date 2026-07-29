@@ -36,4 +36,20 @@ class Repository(private val context: Context) {
         items.forEach { dao.upsert(it) }
     }
 
+    /**
+     * Merges an incoming list of members (from a synced device or a backup
+     * file) into local storage without deleting anything: for each incoming
+     * record, keep whichever copy - existing or incoming - was edited most
+     * recently (by [Member.updatedAtMillis]). Unlike [replaceAll], this never
+     * wipes local-only records that aren't present in [incoming].
+     */
+    suspend fun mergeAll(incoming: List<Member>) {
+        val current = dao.getAllOnce().associateBy { it.id }
+        val toUpsert = incoming.filter { inc ->
+            val existing = current[inc.id]
+            existing == null || inc.updatedAtMillis >= existing.updatedAtMillis
+        }
+        if (toUpsert.isNotEmpty()) dao.insertAll(toUpsert)
+    }
+
 }

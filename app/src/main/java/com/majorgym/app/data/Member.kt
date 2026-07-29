@@ -13,5 +13,8 @@ data class Member(
     val fee: Double,
     val joinedMillis: Long,
     val expiryMillis: Long,
-    val historyJson: String
+    val historyJson: String,
+    /** Used to resolve conflicts when merging records synced from another device:
+     *  whichever copy of a record was edited most recently wins. */
+    val updatedAtMillis: Long = System.currentTimeMillis()
 )

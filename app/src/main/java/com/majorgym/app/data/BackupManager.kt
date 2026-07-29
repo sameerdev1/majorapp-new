@@ -25,6 +25,7 @@ object BackupManager {
             o.put("fee", m.fee)
             o.put("joinedMillis", m.joinedMillis)
             o.put("expiryMillis", m.expiryMillis)
+            o.put("updatedAtMillis", m.updatedAtMillis)
             o.put("history", JSONArray(m.historyJson))
             val photoBase64 = m.photoPath?.let { path ->
                 val f = File(path)
@@ -67,6 +68,7 @@ object BackupManager {
                     fee = o.getDouble("fee"),
                     joinedMillis = o.getLong("joinedMillis"),
                     expiryMillis = o.getLong("expiryMillis"),
+                    updatedAtMillis = o.optLong("updatedAtMillis", 0L),
                     historyJson = o.getJSONArray("history").toString()
                 )
             )

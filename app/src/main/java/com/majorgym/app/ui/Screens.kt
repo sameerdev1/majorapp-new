@@ -108,7 +108,8 @@ fun BottomNav(current: Screen, modifier: Modifier = Modifier, onSelect: (Screen)
         Triple(Screen.Dashboard as Screen, Icons.Filled.Dashboard, "Dashboard"),
         Triple(Screen.Members as Screen, Icons.Filled.People, "Members"),
         Triple(Screen.Add as Screen, Icons.Filled.PersonAdd, "Add"),
-        Triple(Screen.Backup as Screen, Icons.Filled.Storage, "Backup")
+        Triple(Screen.Backup as Screen, Icons.Filled.Storage, "Backup"),
+        Triple(Screen.Sync as Screen, Icons.Filled.Sync, "Sync")
     )
     Row(
         modifier = modifier
@@ -435,7 +436,8 @@ fun AddEditMemberScreen(vm: MembersViewModel, existing: Member?, onNavigate: (Sc
                 val member = Member(
                     id = id, name = name, phone = phone, photoPath = photoPath,
                     plan = plan, fee = feeVal, joinedMillis = joined.toMillis(),
-                    expiryMillis = expiryMillis, historyJson = history.toJson()
+                    expiryMillis = expiryMillis, historyJson = history.toJson(),
+                    updatedAtMillis = System.currentTimeMillis()
                 )
                 vm.save(member)
                 onNavigate(Screen.Profile(id))
@@ -592,7 +594,7 @@ fun RenewScreen(member: Member, vm: MembersViewModel, onNavigate: (Screen) -> Un
             onClick = {
                 val feeVal = fee.toDoubleOrNull() ?: 0.0
                 val newHistory = member.historyJson.toHistoryList() + HistoryEntry("Renewed", plan, feeVal, System.currentTimeMillis(), newExpiry)
-                vm.save(member.copy(plan = plan, fee = feeVal, expiryMillis = newExpiry, historyJson = newHistory.toJson()))
+                vm.save(member.copy(plan = plan, fee = feeVal, expiryMillis = newExpiry, historyJson = newHistory.toJson(), updatedAtMillis = System.currentTimeMillis()))
                 onNavigate(Screen.Profile(member.id))
             },
             colors = ButtonDefaults.buttonColors(containerColor = GymColors.Accent),

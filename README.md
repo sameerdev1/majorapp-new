@@ -2,16 +2,20 @@
 
 Native Android app (Kotlin + Jetpack Compose). All data — including member
 photos — is stored on-device in a local SQLite database and internal app
-storage via Room. No internet permission is requested and none is needed for
-normal use.
+storage via Room. The app never talks to the internet except briefly during
+an active device sync over the local Wi-Fi/hotspot (see below) — it needs no
+account, server, or ongoing subscription.
 
 ## What's inside
 - Dashboard: total/active/expiring/expired counts + total revenue (₹)
 - Members: search, status ring, quick renew
 - Add/Edit member: photo picker, plan selector, auto-calculated expiry
 - Profile: full details, membership + payment history, renew/edit/delete
+- Sync: sync member records live between up to 3 authorized phones over the
+  same Wi-Fi network or hotspot — see `LOCAL_SYNC_GUIDE.md`
 - Backup: export/import a single JSON file (photos embedded as base64) via
   Android's file picker — works with Google Drive, local storage, email, etc.
+- App-wide gym-themed background image and matching launcher icon
 
 ## How to build the actual .apk
 

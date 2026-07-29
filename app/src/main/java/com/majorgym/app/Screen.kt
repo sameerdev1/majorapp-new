@@ -8,4 +8,5 @@ sealed class Screen {
     data class Profile(val id: String) : Screen()
     data class Renew(val id: String) : Screen()
     data object Backup : Screen()
+    data object Sync : Screen()
 }
