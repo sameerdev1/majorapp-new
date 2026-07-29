@@ -17,6 +17,7 @@ import androidx.compose.ui.unit.sp
 import com.majorgym.app.MembersViewModel
 import com.majorgym.app.data.SyncOutcome
 import com.majorgym.app.data.SyncPrefs
+import com.majorgym.app.data.formatDate
 
 @Composable
 fun SyncScreen(vm: MembersViewModel) {
