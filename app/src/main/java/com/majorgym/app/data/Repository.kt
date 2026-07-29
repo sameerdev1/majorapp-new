@@ -31,4 +31,9 @@ class Repository(private val context: Context) {
         }
         return dest.absolutePath
     }
+
+    suspend fun upsertAll(items: List<Member>) {
+        items.forEach { dao.upsert(it) }
+    }
+
 }

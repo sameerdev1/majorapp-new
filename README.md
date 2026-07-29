@@ -48,3 +48,17 @@ create a signing key.
 - If Gradle sync complains about a missing wrapper jar, use
   **File → Sync Project with Gradle Files** after step 3, or run
   `gradle wrapper` once from a terminal if you have Gradle installed locally.
+
+## Local Storage & Manual Sync
+
+This version keeps the Room/SQLite database on each phone and provides a portable JSON backup/sync mechanism.
+
+- No Firebase.
+- No cloud database.
+- No recurring backend service cost.
+- Export data from one phone.
+- Transfer the backup file to another phone.
+- Import the backup on the other phone.
+- Member records are matched by unique ID.
+
+See `LOCAL_SYNC_GUIDE.md` for details.
