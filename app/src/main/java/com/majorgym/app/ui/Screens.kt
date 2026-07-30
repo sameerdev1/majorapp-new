@@ -765,7 +765,7 @@ fun RenewScreen(member: Member, vm: MembersViewModel, onNavigate: (Screen) -> Un
  */
 @Composable
 fun RenewalSuccessScreen(member: Member, onNavigate: (Screen) -> Unit) {
-    val qrBitmap = remember(member.qrToken) { QrUtils.memberQrBitmap(member.id, member.qrToken) }
+    val qrBitmap = remember(member.qrToken) { QrUtils.memberQrBitmap(member) }
     val valid = QrUtils.isTokenValid(member)
 
     Column(

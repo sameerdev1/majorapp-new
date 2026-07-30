@@ -4,24 +4,27 @@ import android.graphics.Bitmap
 import android.graphics.Color
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.qrcode.QRCodeWriter
+import org.json.JSONObject
 import java.util.UUID
 
 /**
- * Generates member QR codes (spec section 2).
+ * Generates the two QR codes this app hands out (spec sections 1 and 2).
  *
- * The QR encodes the member ID plus a rotating, time-limited [Member.qrToken] —
- * never the passkey, phone, membership plan, or payment history. A future client
- * app scans this pair and validates the token against the member record (id
- * matches, token matches, not expired) before treating the membership data as
- * current. Anyone else who scans it learns nothing beyond an opaque id/token pair.
+ * 1. The **member QR** carries a full, compact JSON snapshot of that member's
+ *    own record — id, name, phone, plan, expiry, passkey hash, current
+ *    rotating token — and nothing else (no other members' data). The
+ *    MajorGym Client App (Flutter) scans this ONCE, at first login and again
+ *    after every renewal, to populate its local SQLite cache with no network
+ *    or cloud backend involved. That's also why it only needs to be scanned
+ *    at those two moments: those are the only times this data actually
+ *    changes.
+ * 2. The **gym attendance QR** ([GYM_ATTENDANCE_CODE]) is one fixed string
+ *    for the whole gym, scanned by members every visit to check in.
  *
- * Add-on (unique, time-limited membership QR): the token is regenerated every
- * time membership data changes in a way the client needs to re-sync — new
- * registration, every renewal, and manual "Regenerate QR" — with a fresh expiry
- * window. This means:
- *   - A QR printed/screenshotted before a renewal stops validating once its
- *     window lapses, so it can never be replayed to read stale membership data.
- *   - Only the most recently generated QR for a member is ever valid.
+ * Add-on (unique, time-limited membership QR): [Member.qrToken] rotates on
+ * every registration, renewal, and manual "Regenerate QR", each with a fresh
+ * expiry window — so a QR captured before a renewal stops working once its
+ * window lapses, and can never be replayed to hand out stale membership data.
  */
 object QrUtils {
     /** Static attendance QR content (spec section 1). One fixed value for the whole
@@ -30,34 +33,49 @@ object QrUtils {
      *  render it and let the owner share/display it. */
     const val GYM_ATTENDANCE_CODE = "MAJOR_GYM_ATTENDANCE_2026"
 
+    /** Shown inside the member's onboarding payload; the client app displays this
+     *  as-is rather than hardcoding its own copy. Single gym for v1. */
+    const val GYM_NAME = "MAJOR GYM"
+
     /** Default window a freshly generated membership QR stays valid for. */
     const val TOKEN_VALIDITY_MILLIS: Long = 48L * 60 * 60 * 1000 // 48 hours
 
-    /** Separator between member id and token inside the QR payload. Must never
-     *  appear inside a member id (ids are UUIDs, so this is always safe). */
-    private const val SEPARATOR = "|"
-
     /** Generates a fresh, unpredictable token to embed in a member's QR. */
     fun freshToken(): String = UUID.randomUUID().toString()
-
-    /** The QR payload for a member: their id plus their current rotating token. */
-    fun payload(memberId: String, token: String): String = "$memberId$SEPARATOR$token"
 
     /** Whether [member]'s current token has not yet expired. */
     fun isTokenValid(member: Member, nowMillis: Long = System.currentTimeMillis()): Boolean =
         member.qrToken.isNotEmpty() && nowMillis < member.qrTokenExpiryMillis
 
-    /** Whether a QR payload scanned by a client matches [member]'s current, unexpired token. */
-    fun validate(member: Member, scannedPayload: String, nowMillis: Long = System.currentTimeMillis()): Boolean {
-        val parts = scannedPayload.split(SEPARATOR, limit = 2)
-        if (parts.size != 2) return false
-        val (scannedId, scannedToken) = parts
-        return scannedId == member.id && scannedToken == member.qrToken && isTokenValid(member, nowMillis)
+    /**
+     * The member QR's content: a compact JSON object with exactly what the
+     * client app needs to onboard/refresh itself, and nothing more (no other
+     * members' data, no full payment history — just this one record's
+     * current-state fields). Field names match what the Flutter client's
+     * QrPayloadParser expects; keep the two in sync if either side changes.
+     */
+    fun onboardingPayload(member: Member): String {
+        val o = JSONObject()
+        o.put("id", member.id)
+        o.put("name", member.name)
+        o.put("phone", member.phone)
+        o.put("plan", member.plan)
+        o.put("fee", member.fee)
+        o.put("joinedMillis", member.joinedMillis)
+        o.put("expiryMillis", member.expiryMillis)
+        o.put("passwordHash", member.passwordHash)
+        o.put("token", member.qrToken)
+        o.put("tokenExpiryMillis", member.qrTokenExpiryMillis)
+        o.put("gymName", GYM_NAME)
+        // Renewal/registration history — lets the client show "Last Payment Date"
+        // on its Membership page without a separate data channel.
+        o.put("historyJson", member.historyJson)
+        return o.toString()
     }
 
-    fun memberQrBitmap(memberId: String, token: String, sizePx: Int = 512): Bitmap {
+    fun memberQrBitmap(member: Member, sizePx: Int = 512): Bitmap {
         val writer = QRCodeWriter()
-        val matrix = writer.encode(payload(memberId, token), BarcodeFormat.QR_CODE, sizePx, sizePx)
+        val matrix = writer.encode(onboardingPayload(member), BarcodeFormat.QR_CODE, sizePx, sizePx)
         val bitmap = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.RGB_565)
         for (x in 0 until sizePx) {
             for (y in 0 until sizePx) {

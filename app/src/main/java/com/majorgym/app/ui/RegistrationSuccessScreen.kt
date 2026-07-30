@@ -35,7 +35,7 @@ import com.majorgym.app.data.formatDateTime
 @Composable
 fun RegistrationSuccessScreen(member: Member, passkey: String, onNavigate: (Screen) -> Unit) {
     val context = LocalContext.current
-    val qrBitmap = remember(member.id, member.qrToken) { QrUtils.memberQrBitmap(member.id, member.qrToken) }
+    val qrBitmap = remember(member.id, member.qrToken) { QrUtils.memberQrBitmap(member) }
 
     Column(
         modifier = Modifier.fillMaxSize().padding(24.dp),
