@@ -28,5 +28,12 @@ data class Member(
     val lastAttendanceMillis: Long? = null,
     /** Members expired 180+ days are archived (spec section 8) rather than deleted.
      *  Archived members are hidden from the default list but remain searchable/restorable. */
-    val archived: Boolean = false
+    val archived: Boolean = false,
+    /** Unique, single-use-window token behind the member's QR (add-on: time-limited
+     *  membership QR). Regenerated on registration, on every renewal, and whenever the
+     *  owner taps "Regenerate QR" — so a QR captured before a renewal can never be replayed
+     *  to claim the member's updated plan/expiry. See QrUtils. */
+    val qrToken: String = "",
+    /** Epoch millis after which [qrToken] is no longer valid. */
+    val qrTokenExpiryMillis: Long = 0
 )

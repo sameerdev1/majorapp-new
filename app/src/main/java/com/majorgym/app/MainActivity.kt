@@ -63,6 +63,10 @@ class MainActivity : ComponentActivity() {
                                 val m = members.find { it.id == s.id }
                                 if (m != null) RenewScreen(m, vm) { screen = it }
                             }
+                            is Screen.Renewed -> {
+                                val m = members.find { it.id == s.id }
+                                if (m != null) RenewalSuccessScreen(m) { screen = it }
+                            }
                             Screen.Backup -> BackupScreen(vm)
                             Screen.Sync -> SyncScreen(vm)
                         }

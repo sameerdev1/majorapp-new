@@ -21,6 +21,7 @@ import com.majorgym.app.Screen
 import com.majorgym.app.data.Member
 import com.majorgym.app.data.QrUtils
 import com.majorgym.app.data.WhatsAppShare
+import com.majorgym.app.data.formatDateTime
 
 /**
  * Shown exactly once, right after a new member is saved (spec sections 2-3):
@@ -34,7 +35,7 @@ import com.majorgym.app.data.WhatsAppShare
 @Composable
 fun RegistrationSuccessScreen(member: Member, passkey: String, onNavigate: (Screen) -> Unit) {
     val context = LocalContext.current
-    val qrBitmap = remember(member.id) { QrUtils.memberQrBitmap(member.id) }
+    val qrBitmap = remember(member.id, member.qrToken) { QrUtils.memberQrBitmap(member.id, member.qrToken) }
 
     Column(
         modifier = Modifier.fillMaxSize().padding(24.dp),
@@ -59,6 +60,10 @@ fun RegistrationSuccessScreen(member: Member, passkey: String, onNavigate: (Scre
         }
         Spacer(Modifier.height(8.dp))
         Text("Member ID: ${member.id.take(8)}\u2026", color = GymColors.TextFaint, fontSize = 11.sp)
+        Text(
+            "QR valid until ${formatDateTime(member.qrTokenExpiryMillis)}",
+            color = GymColors.TextFaint, fontSize = 10.sp, modifier = Modifier.padding(top = 2.dp)
+        )
         Spacer(Modifier.height(28.dp))
 
         Button(

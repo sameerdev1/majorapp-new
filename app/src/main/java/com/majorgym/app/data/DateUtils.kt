@@ -27,6 +27,18 @@ fun formatDate(millis: Long): String {
     return "%02d %s %d".format(d.dayOfMonth, month, d.year)
 }
 
+/** Same as [formatDate] but with a time component — used for the QR token expiry,
+ *  where "today" isn't precise enough since the token expires at a specific hour. */
+fun formatDateTime(millis: Long): String {
+    val zoned = Instant.ofEpochMilli(millis).atZone(ZoneId.systemDefault())
+    val d = zoned.toLocalDate()
+    val month = d.month.getDisplayName(TextStyle.SHORT, Locale.ENGLISH)
+    val hour24 = zoned.hour
+    val amPm = if (hour24 < 12) "AM" else "PM"
+    val hour12 = when (val h = hour24 % 12) { 0 -> 12; else -> h }
+    return "%02d %s %d, %d:%02d %s".format(d.dayOfMonth, month, d.year, hour12, zoned.minute, amPm)
+}
+
 fun formatMoney(v: Double): String {
     val nf = java.text.NumberFormat.getIntegerInstance(Locale("en", "IN"))
     return "\u20B9" + nf.format(v.toLong())

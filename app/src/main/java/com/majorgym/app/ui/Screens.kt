@@ -7,6 +7,7 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -25,6 +26,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -489,7 +491,12 @@ fun AddEditMemberScreen(vm: MembersViewModel, existing: Member?, onNavigate: (Sc
                     passwordHash = if (existing == null) PasskeyUtils.hash(passkey) else existing.passwordHash,
                     createdAtMillis = existing?.createdAtMillis ?: System.currentTimeMillis(),
                     lastAttendanceMillis = existing?.lastAttendanceMillis,
-                    archived = existing?.archived ?: false
+                    archived = existing?.archived ?: false,
+                    // Add-on: unique, time-limited QR — a brand-new member gets a fresh
+                    // token/expiry; a plain edit (not add, not renew) keeps the existing one.
+                    qrToken = existing?.qrToken ?: QrUtils.freshToken(),
+                    qrTokenExpiryMillis = existing?.qrTokenExpiryMillis
+                        ?: (System.currentTimeMillis() + QrUtils.TOKEN_VALIDITY_MILLIS)
                 )
                 vm.save(member)
                 if (existing == null) onNavigate(Screen.Registered(id, passkey)) else onNavigate(Screen.Profile(id))
@@ -545,6 +552,22 @@ fun ProfileScreen(member: Member, vm: MembersViewModel, onNavigate: (Screen) -> 
                 ActionButton(Icons.Filled.Refresh, "Renew", GymColors.Accent, Modifier.weight(1f)) { onNavigate(Screen.Renew(member.id)) }
                 ActionButton(Icons.Filled.Edit, "Edit", GymColors.TextMuted, Modifier.weight(1f)) { onNavigate(Screen.Edit(member.id)) }
                 ActionButton(Icons.Filled.Delete, "Delete", GymColors.Danger, Modifier.weight(1f)) { confirmDelete = true }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
+                // Add-on: view the member's current QR, or force a fresh time-limited
+                // token/expiry on demand (e.g. after the current one has lapsed).
+                ActionButton(Icons.Filled.QrCode, if (QrUtils.isTokenValid(member)) "View QR" else "Regenerate QR", GymColors.Accent, Modifier.weight(1f)) {
+                    if (!QrUtils.isTokenValid(member)) {
+                        vm.save(
+                            member.copy(
+                                qrToken = QrUtils.freshToken(),
+                                qrTokenExpiryMillis = System.currentTimeMillis() + QrUtils.TOKEN_VALIDITY_MILLIS,
+                                updatedAtMillis = System.currentTimeMillis()
+                            )
+                        )
+                    }
+                    onNavigate(Screen.Renewed(member.id))
+                }
             }
             Text("HISTORY", color = GymColors.TextFaint, fontSize = 11.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(bottom = 8.dp))
         }
@@ -646,13 +669,79 @@ fun RenewScreen(member: Member, vm: MembersViewModel, onNavigate: (Screen) -> Un
             onClick = {
                 val feeVal = fee.toDoubleOrNull() ?: 0.0
                 val newHistory = member.historyJson.toHistoryList() + HistoryEntry("Renewed", plan, feeVal, System.currentTimeMillis(), newExpiry)
-                vm.save(member.copy(plan = plan, fee = feeVal, expiryMillis = newExpiry, historyJson = newHistory.toJson(), updatedAtMillis = System.currentTimeMillis()))
-                onNavigate(Screen.Profile(member.id))
+                vm.save(
+                    member.copy(
+                        plan = plan, fee = feeVal, expiryMillis = newExpiry, historyJson = newHistory.toJson(),
+                        updatedAtMillis = System.currentTimeMillis(),
+                        // Add-on: every renewal rotates the QR token to a brand-new one with a
+                        // fresh expiry window, so a QR captured before this renewal can never be
+                        // replayed by a client to read the member's old membership data.
+                        qrToken = QrUtils.freshToken(),
+                        qrTokenExpiryMillis = System.currentTimeMillis() + QrUtils.TOKEN_VALIDITY_MILLIS
+                    )
+                )
+                onNavigate(Screen.Renewed(member.id))
             },
             colors = ButtonDefaults.buttonColors(containerColor = GymColors.Accent),
             modifier = Modifier.fillMaxWidth().height(48.dp)
         ) {
             Text("Confirm Renewal", fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+// ---------- Renewal / QR success ----------
+
+/**
+ * Shown after a renewal is confirmed, and also reachable on-demand from the
+ * Profile screen's QR button (add-on: unique, time-limited membership QR).
+ * Always displays the member's *current* qrToken, so it's correct whether it
+ * was just rotated by a renewal or by a manual regenerate.
+ */
+@Composable
+fun RenewalSuccessScreen(member: Member, onNavigate: (Screen) -> Unit) {
+    val qrBitmap = remember(member.qrToken) { QrUtils.memberQrBitmap(member.id, member.qrToken) }
+    val valid = QrUtils.isTokenValid(member)
+
+    Column(
+        modifier = Modifier.fillMaxSize().padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = GymColors.Success, modifier = Modifier.size(48.dp))
+        Spacer(Modifier.height(12.dp))
+        Text("QR UPDATED", color = GymColors.Text, fontWeight = FontWeight.Bold, fontSize = 20.sp)
+        Text(member.name, color = GymColors.TextMuted, fontSize = 14.sp, modifier = Modifier.padding(top = 4.dp))
+        Spacer(Modifier.height(24.dp))
+
+        Box(
+            modifier = Modifier
+                .size(220.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .background(Color.White)
+                .padding(16.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Image(bitmap = qrBitmap.asImageBitmap(), contentDescription = "Member QR code")
+        }
+        Spacer(Modifier.height(8.dp))
+        Text(
+            if (valid) "Valid until ${formatDateTime(member.qrTokenExpiryMillis)}" else "Expired \u2014 regenerate before sharing",
+            color = if (valid) GymColors.TextFaint else GymColors.Danger,
+            fontSize = 11.sp
+        )
+        Text(
+            "This QR replaces any earlier one \u2014 old QRs no longer work.",
+            color = GymColors.TextFaint, fontSize = 10.sp, modifier = Modifier.padding(top = 4.dp)
+        )
+        Spacer(Modifier.height(28.dp))
+
+        Button(
+            onClick = { onNavigate(Screen.Profile(member.id)) },
+            colors = ButtonDefaults.buttonColors(containerColor = GymColors.Accent),
+            modifier = Modifier.fillMaxWidth().height(48.dp)
+        ) {
+            Text("Done", fontWeight = FontWeight.Bold)
         }
     }
 }

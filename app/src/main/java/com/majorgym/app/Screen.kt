@@ -10,6 +10,9 @@ sealed class Screen {
     data class Registered(val id: String, val passkey: String) : Screen()
     data class Profile(val id: String) : Screen()
     data class Renew(val id: String) : Screen()
+    /** Shown once, immediately after a renewal is confirmed: displays the member's
+     *  freshly-rotated, time-limited QR (add-on: unique QR per add/renewal). */
+    data class Renewed(val id: String) : Screen()
     data object Backup : Screen()
     data object Sync : Screen()
 }
