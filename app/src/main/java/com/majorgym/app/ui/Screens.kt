@@ -34,6 +34,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import coil.compose.AsyncImage
 import com.majorgym.app.MembersViewModel
 import com.majorgym.app.Screen
@@ -219,6 +220,10 @@ fun DashboardScreen(members: List<Member>, onNavigate: (Screen) -> Unit) {
             Text("Membership overview", color = GymColors.TextMuted, fontSize = 13.sp, modifier = Modifier.padding(top = 2.dp, bottom = 16.dp))
         }
         item {
+            GymAttendanceQrCard()
+            Spacer(Modifier.height(14.dp))
+        }
+        item {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(bottom = 10.dp)) {
                 StatCard("Total Members", members.size.toString(), Modifier.weight(1f))
                 StatCard("Active", active.toString(), Modifier.weight(1f))
@@ -266,6 +271,66 @@ fun DashboardScreen(members: List<Member>, onNavigate: (Screen) -> Unit) {
                     }
                     StatusBadge(status)
                 }
+            }
+        }
+    }
+}
+
+/**
+ * Permanent attendance QR, always visible on the Dashboard (add-on request).
+ * Encodes [QrUtils.GYM_ATTENDANCE_CODE] — one fixed value for the whole gym
+ * that never changes, unlike the per-member QR. Members scan this to check in;
+ * this card just renders it and lets the owner display it full-size or share
+ * the image (e.g. to print, or send to a front-desk tablet).
+ */
+@Composable
+fun GymAttendanceQrCard() {
+    val context = LocalContext.current
+    var fullScreen by remember { mutableStateOf(false) }
+    val qrBitmap = remember { QrUtils.gymQrBitmap(QrUtils.GYM_ATTENDANCE_CODE) }
+
+    Column(
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(GymColors.Surface).padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text("GYM ATTENDANCE QR", color = GymColors.Gold, fontSize = 11.sp, fontWeight = FontWeight.Medium, modifier = Modifier.align(Alignment.Start))
+        Text(
+            "Members scan this to check in \u2014 fixed, never changes",
+            color = GymColors.TextFaint, fontSize = 10.sp, modifier = Modifier.align(Alignment.Start).padding(top = 2.dp, bottom = 12.dp)
+        )
+        Box(
+            modifier = Modifier
+                .size(160.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(Color.White)
+                .padding(10.dp)
+                .clickable { fullScreen = true },
+            contentAlignment = Alignment.Center
+        ) {
+            Image(bitmap = qrBitmap.asImageBitmap(), contentDescription = "Gym attendance QR code")
+        }
+        Spacer(Modifier.height(12.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            ActionButton(Icons.Filled.Fullscreen, "Display", GymColors.Accent, Modifier.weight(1f)) { fullScreen = true }
+            ActionButton(Icons.Filled.Share, "Share", GymColors.Accent, Modifier.weight(1f)) {
+                QrShareUtils.shareBitmap(context, qrBitmap, "gym_attendance_qr.png", "Share gym attendance QR")
+            }
+        }
+    }
+
+    if (fullScreen) {
+        Dialog(onDismissRequest = { fullScreen = false }) {
+            Column(
+                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Color.White).padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Image(
+                    bitmap = qrBitmap.asImageBitmap(),
+                    contentDescription = "Gym attendance QR code",
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(Modifier.height(12.dp))
+                Text("MAJOR GYM \u2014 Scan to mark attendance", color = androidx.compose.ui.graphics.Color.Black, fontSize = 13.sp, fontWeight = FontWeight.Bold)
             }
         }
     }

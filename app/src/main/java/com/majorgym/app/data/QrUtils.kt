@@ -24,6 +24,12 @@ import java.util.UUID
  *   - Only the most recently generated QR for a member is ever valid.
  */
 object QrUtils {
+    /** Static attendance QR content (spec section 1). One fixed value for the whole
+     *  gym — never regenerated, never rotated, unlike the per-member QR below. Every
+     *  member/client scans this exact same code to check in; this app only needs to
+     *  render it and let the owner share/display it. */
+    const val GYM_ATTENDANCE_CODE = "MAJOR_GYM_ATTENDANCE_2026"
+
     /** Default window a freshly generated membership QR stays valid for. */
     const val TOKEN_VALIDITY_MILLIS: Long = 48L * 60 * 60 * 1000 // 48 hours
 
