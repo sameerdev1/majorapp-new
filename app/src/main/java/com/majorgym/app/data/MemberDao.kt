@@ -15,6 +15,13 @@ interface MemberDao {
     @Query("SELECT * FROM members")
     suspend fun getAllOnce(): List<Member>
 
+    /** Used to enforce the "phone number is already registered" rule (spec section 1)
+     *  before attempting an insert, so the owner gets a friendly message instead of a
+     *  raw SQLite constraint-violation crash. [excludingId] lets an edit screen check
+     *  against every *other* member without flagging the record's own phone number. */
+    @Query("SELECT COUNT(*) FROM members WHERE phone = :phone AND id != :excludingId")
+    suspend fun countByPhone(phone: String, excludingId: String = ""): Int
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(member: Member)
 

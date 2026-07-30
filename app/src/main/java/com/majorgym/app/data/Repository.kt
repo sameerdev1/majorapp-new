@@ -16,6 +16,10 @@ class Repository(private val context: Context) {
     fun observeAll() = dao.getAll()
     suspend fun allOnce() = dao.getAllOnce()
     suspend fun save(member: Member) = dao.upsert(member)
+
+    /** True if some other member already has this phone number (spec section 1: unique phone). */
+    suspend fun isPhoneTaken(phone: String, excludingId: String = ""): Boolean =
+        dao.countByPhone(phone, excludingId) > 0
     suspend fun delete(member: Member) = dao.delete(member)
     suspend fun replaceAll(members: List<Member>) {
         dao.clearAll()

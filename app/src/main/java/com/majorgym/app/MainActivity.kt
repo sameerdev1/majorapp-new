@@ -51,6 +51,10 @@ class MainActivity : ComponentActivity() {
                                 val m = members.find { it.id == s.id }
                                 if (m != null) AddEditMemberScreen(vm, m) { screen = it }
                             }
+                            is Screen.Registered -> {
+                                val m = members.find { it.id == s.id }
+                                if (m != null) RegistrationSuccessScreen(m, s.passkey) { screen = it }
+                            }
                             is Screen.Profile -> {
                                 val m = members.find { it.id == s.id }
                                 if (m != null) ProfileScreen(m, vm) { screen = it }

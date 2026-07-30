@@ -61,4 +61,7 @@ dependencies {
 
     implementation("io.coil-kt:coil-compose:2.6.0")
 
+    // QR generation (member QR + static gym QR — spec sections 2 and 9)
+    implementation("com.google.zxing:core:3.5.3")
+
 }

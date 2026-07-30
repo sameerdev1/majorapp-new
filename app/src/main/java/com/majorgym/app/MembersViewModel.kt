@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.majorgym.app.data.BackupManager
 import com.majorgym.app.data.Member
 import com.majorgym.app.data.PairedDevice
+import com.majorgym.app.data.PasskeyUtils
 import com.majorgym.app.data.Repository
 import com.majorgym.app.data.SyncManager
 import com.majorgym.app.data.SyncOutcome
@@ -26,6 +27,15 @@ class MembersViewModel(app: Application) : AndroidViewModel(app) {
 
     fun save(member: Member) = viewModelScope.launch { repo.save(member) }
     fun delete(member: Member) = viewModelScope.launch { repo.delete(member) }
+
+    /** Checks the "phone number already registered" rule before saving (spec section 1). */
+    suspend fun isPhoneTaken(phone: String, excludingId: String = ""): Boolean =
+        repo.isPhoneTaken(phone, excludingId)
+
+    /** Generates a fresh plaintext passkey. Callers must hash it via [PasskeyUtils.hash]
+     *  before it's ever stored — the plaintext is only for on-screen display and the
+     *  one-time WhatsApp welcome message. */
+    fun generatePasskey(): String = PasskeyUtils.generate()
 
     /** Copies the picked image into permanent app storage; safe to call synchronously. */
     fun savePhoto(memberId: String, uri: Uri): String = repo.savePhoto(memberId, uri)

@@ -1,6 +1,10 @@
 package com.majorgym.app.ui
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.net.Uri
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -351,13 +355,22 @@ fun AddEditMemberScreen(vm: MembersViewModel, existing: Member?, onNavigate: (Sc
     var plan by remember { mutableStateOf(existing?.plan ?: "1 Month") }
     var fee by remember { mutableStateOf(existing?.fee?.toInt()?.toString() ?: "") }
 
+    var passkey by remember { mutableStateOf(existing?.let { "" } ?: PasskeyUtils.generate()) }
+    var phoneTaken by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+
     val pickPhoto = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
         uri?.let { photoPath = vm.savePhoto(id, it) }
     }
 
+    // Duplicate-phone check (spec section 1): re-checked whenever the phone field changes.
+    LaunchedEffect(phone) {
+        phoneTaken = if (phone.length >= 10) vm.isPhoneTaken(phone, excludingId = id) else false
+    }
+
     val months = PLAN_MONTHS[plan] ?: 1L
     val expiryMillis = addMonthsMillis(joined.toMillis(), months)
-    val valid = name.isNotBlank() && phone.length >= 10 && fee.toDoubleOrNull() != null
+    val valid = name.trim().length >= 3 && phone.length >= 10 && fee.toDoubleOrNull() != null && !phoneTaken
 
     Column(
         modifier = Modifier
@@ -405,8 +418,43 @@ fun AddEditMemberScreen(vm: MembersViewModel, existing: Member?, onNavigate: (Sc
             OutlinedTextField(
                 value = phone,
                 onValueChange = { phone = it.filter { c -> c.isDigit() }.take(10) },
-                modifier = Modifier.fillMaxWidth(), singleLine = true, colors = gymFieldColors()
+                modifier = Modifier.fillMaxWidth(), singleLine = true, colors = gymFieldColors(),
+                isError = phoneTaken
             )
+            if (phoneTaken) {
+                Text(
+                    "This phone number is already registered.",
+                    color = GymColors.Danger, fontSize = 11.sp, modifier = Modifier.padding(top = 4.dp)
+                )
+            }
+        }
+        if (existing == null) {
+            LabeledField("Passkey") {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                    OutlinedTextField(
+                        value = passkey, onValueChange = {}, readOnly = true,
+                        modifier = Modifier.weight(1f), singleLine = true, colors = gymFieldColors()
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Icon(
+                        Icons.Filled.Refresh, contentDescription = "Regenerate", tint = GymColors.Accent,
+                        modifier = Modifier.clickable { passkey = PasskeyUtils.generate() }
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    Icon(
+                        Icons.Filled.ContentCopy, contentDescription = "Copy", tint = GymColors.Accent,
+                        modifier = Modifier.clickable {
+                            val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            cm.setPrimaryClip(ClipData.newPlainText("Passkey", passkey))
+                            Toast.makeText(context, "Passkey copied", Toast.LENGTH_SHORT).show()
+                        }
+                    )
+                }
+                Text(
+                    "Shown only once. It will be sent to the member via WhatsApp after saving.",
+                    color = GymColors.TextFaint, fontSize = 10.sp, modifier = Modifier.padding(top = 4.dp)
+                )
+            }
         }
         LabeledField("Joining Date") { DatePickerField(joined) { joined = it } }
         LabeledField("Membership Plan") { PlanGrid(plan) { plan = it } }
@@ -434,13 +482,17 @@ fun AddEditMemberScreen(vm: MembersViewModel, existing: Member?, onNavigate: (Sc
                     listOf(HistoryEntry("Joined", plan, feeVal, joined.toMillis(), expiryMillis))
                 else existing.historyJson.toHistoryList()
                 val member = Member(
-                    id = id, name = name, phone = phone, photoPath = photoPath,
+                    id = id, name = name.trim(), phone = phone, photoPath = photoPath,
                     plan = plan, fee = feeVal, joinedMillis = joined.toMillis(),
                     expiryMillis = expiryMillis, historyJson = history.toJson(),
-                    updatedAtMillis = System.currentTimeMillis()
+                    updatedAtMillis = System.currentTimeMillis(),
+                    passwordHash = if (existing == null) PasskeyUtils.hash(passkey) else existing.passwordHash,
+                    createdAtMillis = existing?.createdAtMillis ?: System.currentTimeMillis(),
+                    lastAttendanceMillis = existing?.lastAttendanceMillis,
+                    archived = existing?.archived ?: false
                 )
                 vm.save(member)
-                onNavigate(Screen.Profile(id))
+                if (existing == null) onNavigate(Screen.Registered(id, passkey)) else onNavigate(Screen.Profile(id))
             },
             enabled = valid,
             colors = ButtonDefaults.buttonColors(containerColor = GymColors.Accent, disabledContainerColor = GymColors.Surface2),
