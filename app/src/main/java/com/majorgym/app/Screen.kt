@@ -10,9 +10,13 @@ sealed class Screen {
     data class Registered(val id: String, val passkey: String) : Screen()
     data class Profile(val id: String) : Screen()
     data class Renew(val id: String) : Screen()
-    /** Shown once, immediately after a renewal is confirmed: displays the member's
-     *  freshly-rotated, time-limited QR (add-on: unique QR per add/renewal). */
-    data class Renewed(val id: String) : Screen()
+    /** Shown once, immediately after a renewal is confirmed, and also reachable
+     *  on-demand from the Profile screen's QR button (add-on: unique QR per
+     *  add/renewal). [justRenewed] is true only when reached via an actual
+     *  renewal confirmation — that's what gates the "Share Renewal Update"
+     *  action, so a plain QR view/regenerate doesn't also prompt to text the
+     *  member. */
+    data class Renewed(val id: String, val justRenewed: Boolean = false) : Screen()
     data object Backup : Screen()
     data object Sync : Screen()
 }

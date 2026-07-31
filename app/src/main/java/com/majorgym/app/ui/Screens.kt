@@ -745,7 +745,7 @@ fun RenewScreen(member: Member, vm: MembersViewModel, onNavigate: (Screen) -> Un
                         qrTokenExpiryMillis = System.currentTimeMillis() + QrUtils.TOKEN_VALIDITY_MILLIS
                     )
                 )
-                onNavigate(Screen.Renewed(member.id))
+                onNavigate(Screen.Renewed(member.id, justRenewed = true))
             },
             colors = ButtonDefaults.buttonColors(containerColor = GymColors.Accent),
             modifier = Modifier.fillMaxWidth().height(48.dp)
@@ -764,7 +764,8 @@ fun RenewScreen(member: Member, vm: MembersViewModel, onNavigate: (Screen) -> Un
  * was just rotated by a renewal or by a manual regenerate.
  */
 @Composable
-fun RenewalSuccessScreen(member: Member, onNavigate: (Screen) -> Unit) {
+fun RenewalSuccessScreen(member: Member, justRenewed: Boolean = false, onNavigate: (Screen) -> Unit) {
+    val context = LocalContext.current
     val qrBitmap = remember(member.qrToken) { QrUtils.memberQrBitmap(member) }
     val valid = QrUtils.isTokenValid(member)
 
@@ -775,7 +776,7 @@ fun RenewalSuccessScreen(member: Member, onNavigate: (Screen) -> Unit) {
     ) {
         Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = GymColors.Success, modifier = Modifier.size(48.dp))
         Spacer(Modifier.height(12.dp))
-        Text("QR UPDATED", color = GymColors.Text, fontWeight = FontWeight.Bold, fontSize = 20.sp)
+        Text(if (justRenewed) "MEMBERSHIP RENEWED" else "QR UPDATED", color = GymColors.Text, fontWeight = FontWeight.Bold, fontSize = 20.sp)
         Text(member.name, color = GymColors.TextMuted, fontSize = 14.sp, modifier = Modifier.padding(top = 4.dp))
         Spacer(Modifier.height(24.dp))
 
@@ -801,12 +802,31 @@ fun RenewalSuccessScreen(member: Member, onNavigate: (Screen) -> Unit) {
         )
         Spacer(Modifier.height(28.dp))
 
-        Button(
-            onClick = { onNavigate(Screen.Profile(member.id)) },
-            colors = ButtonDefaults.buttonColors(containerColor = GymColors.Accent),
-            modifier = Modifier.fillMaxWidth().height(48.dp)
-        ) {
-            Text("Done", fontWeight = FontWeight.Bold)
+        if (justRenewed) {
+            Button(
+                onClick = { WhatsAppShare.shareRenewal(context, member) },
+                colors = ButtonDefaults.buttonColors(containerColor = GymColors.Accent),
+                modifier = Modifier.fillMaxWidth().height(48.dp)
+            ) {
+                Icon(Icons.Filled.Share, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text("Share Renewal Update", fontWeight = FontWeight.Bold)
+            }
+            Spacer(Modifier.height(12.dp))
+            OutlinedButton(
+                onClick = { onNavigate(Screen.Profile(member.id)) },
+                modifier = Modifier.fillMaxWidth().height(48.dp)
+            ) {
+                Text("Done")
+            }
+        } else {
+            Button(
+                onClick = { onNavigate(Screen.Profile(member.id)) },
+                colors = ButtonDefaults.buttonColors(containerColor = GymColors.Accent),
+                modifier = Modifier.fillMaxWidth().height(48.dp)
+            ) {
+                Text("Done", fontWeight = FontWeight.Bold)
+            }
         }
     }
 }
