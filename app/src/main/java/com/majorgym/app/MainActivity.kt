@@ -28,9 +28,13 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             MajorGymTheme {
+                var showSplash by remember { mutableStateOf(true) }
                 var screen by remember { mutableStateOf<Screen>(Screen.Dashboard) }
                 val members by vm.members.collectAsState()
 
+                if (showSplash) {
+                    SplashScreen(onFinished = { showSplash = false })
+                } else {
                 // Surface is transparent so the background image behind it shows through
                 // on every screen; a dark scrim keeps text/cards readable over the photo.
                 Surface(modifier = Modifier.fillMaxSize(), color = Color.Transparent) {
@@ -72,6 +76,7 @@ class MainActivity : ComponentActivity() {
                         }
                         BottomNav(screen, modifier = Modifier.align(Alignment.BottomCenter)) { screen = it }
                     }
+                }
                 }
             }
         }

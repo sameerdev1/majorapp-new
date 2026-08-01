@@ -201,8 +201,16 @@ fun DashboardScreen(members: List<Member>, onNavigate: (Screen) -> Unit) {
     val expiring = members.count { statusOf(it.expiryMillis) == MemberStatus.EXPIRING }
     val expired = members.count { statusOf(it.expiryMillis) == MemberStatus.EXPIRED }
     val revenue = members.sumOf { m -> m.historyJson.toHistoryList().sumOf { it.fee } }
+    // "Expiring Soon" widget: every member whose membership expires within the next
+    // 7 days (inclusive of today and day 7), earliest expiry first. Iterates the full
+    // members list every recomposition — `members` itself is backed by a Room Flow, so
+    // this recalculates automatically whenever a member is added, edited, deleted, or
+    // imported/synced in. Intentionally unbounded: do not add .take()/.first() here.
     val attention = members
-        .filter { statusOf(it.expiryMillis) != MemberStatus.EXPIRED && daysBetweenNow(it.expiryMillis) <= 7 }
+        .filter { m ->
+            val daysRemaining = daysBetweenNow(m.expiryMillis)
+            daysRemaining >= 0 && daysRemaining <= 7
+        }
         .sortedBy { it.expiryMillis }
 
     LazyColumn(
@@ -245,9 +253,9 @@ fun DashboardScreen(members: List<Member>, onNavigate: (Screen) -> Unit) {
         }
         if (attention.isNotEmpty()) {
             item {
-                Text("NEEDS ATTENTION", color = GymColors.TextFaint, fontSize = 11.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(bottom = 8.dp))
+                Text("NEEDS ATTENTION (${attention.size})", color = GymColors.TextFaint, fontSize = 11.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(bottom = 8.dp))
             }
-            items(attention.take(5)) { m ->
+            items(attention, key = { it.id }) { m ->
                 val status = statusOf(m.expiryMillis)
                 val days = daysBetweenNow(m.expiryMillis)
                 Row(
