@@ -591,6 +591,10 @@ fun ProfileScreen(member: Member, vm: MembersViewModel, onNavigate: (Screen) -> 
     val status = statusOf(member.expiryMillis)
     val days = daysBetweenNow(member.expiryMillis)
     val history = remember(member.historyJson) { member.historyJson.toHistoryList().reversed() }
+    // Most recent renewal date, if any — history is already newest-first, so
+    // the first "Renewed" entry (as opposed to the original "Joined" entry)
+    // is the latest one. Members who've never renewed simply won't have one.
+    val lastRenewedMillis = remember(history) { history.firstOrNull { it.type == "Renewed" }?.dateMillis }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
@@ -617,6 +621,9 @@ fun ProfileScreen(member: Member, vm: MembersViewModel, onNavigate: (Screen) -> 
             Column(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(GymColors.Surface).padding(16.dp)) {
                 ProfileRow(Icons.Filled.Phone, "Phone", member.phone)
                 ProfileRow(Icons.Filled.CalendarToday, "Joined", formatDate(member.joinedMillis))
+                if (lastRenewedMillis != null) {
+                    ProfileRow(Icons.Filled.Refresh, "Renewed", formatDate(lastRenewedMillis))
+                }
                 ProfileRow(Icons.Filled.CalendarToday, "Expires", formatDate(member.expiryMillis))
                 ProfileRow(Icons.Filled.CurrencyRupee, "Current Plan", "${member.plan} \u00B7 ${formatMoney(member.fee)}", last = true)
             }
