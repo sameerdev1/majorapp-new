@@ -3,4 +3,7 @@
     <!-- Used only to hand a freshly-rendered QR bitmap to the system share sheet
          (see QrShareUtils) — nothing else is exposed through this provider. -->
     <cache-path name="shared_qr" path="shared_qr/" />
+    <!-- Temp file for the "Take Photo" camera capture, before it's copied into
+         permanent storage by Repository.savePhoto. -->
+    <cache-path name="camera_captures" path="camera_captures/" />
 </paths>

@@ -7,6 +7,7 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.FileProvider
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -420,6 +421,13 @@ fun MembersScreen(members: List<Member>, onNavigate: (Screen) -> Unit) {
 
 // ---------- Add / Edit member ----------
 
+/** Creates a fresh temp-file content URI for the camera to write a captured photo into. */
+private fun newCameraCaptureUri(context: android.content.Context): Uri {
+    val dir = File(context.cacheDir, "camera_captures").apply { mkdirs() }
+    val file = File(dir, "capture_${System.currentTimeMillis()}.jpg")
+    return FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+}
+
 @Composable
 fun AddEditMemberScreen(vm: MembersViewModel, existing: Member?, onNavigate: (Screen) -> Unit) {
     val id = remember { existing?.id ?: UUID.randomUUID().toString() }
@@ -434,8 +442,21 @@ fun AddEditMemberScreen(vm: MembersViewModel, existing: Member?, onNavigate: (Sc
     var phoneTaken by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
+    var showPhotoSourceSheet by remember { mutableStateOf(false) }
+    var pendingCameraUri by remember { mutableStateOf<Uri?>(null) }
+
     val pickPhoto = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
         uri?.let { photoPath = vm.savePhoto(id, it) }
+    }
+    val takePhoto = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
+        if (success) pendingCameraUri?.let { photoPath = vm.savePhoto(id, it) }
+    }
+    val requestCameraPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) {
+            val uri = newCameraCaptureUri(context)
+            pendingCameraUri = uri
+            takePhoto.launch(uri)
+        }
     }
 
     // Duplicate-phone check (spec section 1): re-checked whenever the phone field changes.
@@ -471,7 +492,7 @@ fun AddEditMemberScreen(vm: MembersViewModel, existing: Member?, onNavigate: (Sc
                 .clip(CircleShape)
                 .background(GymColors.Surface2)
                 .border(2.dp, GymColors.Border, CircleShape)
-                .clickable { pickPhoto.launch("image/*") },
+                .clickable { showPhotoSourceSheet = true },
             contentAlignment = Alignment.Center
         ) {
             val p = photoPath
@@ -581,6 +602,49 @@ fun AddEditMemberScreen(vm: MembersViewModel, existing: Member?, onNavigate: (Sc
             Text(if (existing == null) "Add Member" else "Save Changes", fontWeight = FontWeight.Bold)
         }
     }
+
+    if (showPhotoSourceSheet) {
+        AlertDialog(
+            onDismissRequest = { showPhotoSourceSheet = false },
+            containerColor = GymColors.Surface,
+            title = { Text("Add Photo", color = GymColors.Text) },
+            text = {
+                Column {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                showPhotoSourceSheet = false
+                                pickPhoto.launch("image/*")
+                            }
+                            .padding(vertical = 12.dp)
+                    ) {
+                        Icon(Icons.Filled.PhotoLibrary, null, tint = GymColors.Accent)
+                        Spacer(Modifier.width(12.dp))
+                        Text("Choose from Gallery", color = GymColors.Text, fontSize = 14.sp)
+                    }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                showPhotoSourceSheet = false
+                                requestCameraPermission.launch(android.Manifest.permission.CAMERA)
+                            }
+                            .padding(vertical = 12.dp)
+                    ) {
+                        Icon(Icons.Filled.CameraAlt, null, tint = GymColors.Accent)
+                        Spacer(Modifier.width(12.dp))
+                        Text("Take Photo", color = GymColors.Text, fontSize = 14.sp)
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showPhotoSourceSheet = false }) { Text("Cancel", color = GymColors.TextMuted) }
+            }
+        )
+    }
 }
 
 // ---------- Profile ----------
@@ -588,6 +652,7 @@ fun AddEditMemberScreen(vm: MembersViewModel, existing: Member?, onNavigate: (Sc
 @Composable
 fun ProfileScreen(member: Member, vm: MembersViewModel, onNavigate: (Screen) -> Unit) {
     var confirmDelete by remember { mutableStateOf(false) }
+    var showPhoto by remember { mutableStateOf(false) }
     val status = statusOf(member.expiryMillis)
     val days = daysBetweenNow(member.expiryMillis)
     val history = remember(member.historyJson) { member.historyJson.toHistoryList().reversed() }
@@ -607,7 +672,9 @@ fun ProfileScreen(member: Member, vm: MembersViewModel, onNavigate: (Screen) -> 
                 Text("MEMBER PROFILE", color = GymColors.Text, fontWeight = FontWeight.Bold, fontSize = 20.sp)
             }
             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
-                StatusRing(member.photoPath, member.name, status, 92.dp)
+                Box(modifier = Modifier.clickable { showPhoto = true }) {
+                    StatusRing(member.photoPath, member.name, status, 92.dp)
+                }
                 Spacer(Modifier.height(10.dp))
                 Text(member.name, color = GymColors.Text, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(6.dp))
@@ -663,6 +730,10 @@ fun ProfileScreen(member: Member, vm: MembersViewModel, onNavigate: (Screen) -> 
                 Text(formatMoney(h.fee), color = GymColors.Gold, fontSize = 13.sp, fontWeight = FontWeight.Bold)
             }
         }
+    }
+
+    if (showPhoto) {
+        FullScreenPhotoViewer(member.photoPath, member.name, onDismiss = { showPhoto = false })
     }
 
     if (confirmDelete) {
