@@ -44,6 +44,23 @@ fun formatMoney(v: Double): String {
     return "\u20B9" + nf.format(v.toLong())
 }
 
+/** Time-only companion to [formatDate], used for the Share Backup File card
+ *  (spec wants Backup Date and Backup Time shown as separate items). */
+fun formatTimeOfDay(millis: Long): String {
+    val zoned = Instant.ofEpochMilli(millis).atZone(ZoneId.systemDefault())
+    val hour24 = zoned.hour
+    val amPm = if (hour24 < 12) "AM" else "PM"
+    val hour12 = when (val h = hour24 % 12) { 0 -> 12; else -> h }
+    return "%d:%02d %s".format(hour12, zoned.minute, amPm)
+}
+
+/** Human-readable file size for the Share Backup File card. */
+fun formatBackupSize(bytes: Long): String = when {
+    bytes < 1024 -> "$bytes B"
+    bytes < 1024 * 1024 -> "%.1f KB".format(bytes / 1024.0)
+    else -> "%.1f MB".format(bytes / (1024.0 * 1024.0))
+}
+
 enum class MemberStatus { ACTIVE, EXPIRING, EXPIRED }
 
 fun statusOf(expiryMillis: Long): MemberStatus {

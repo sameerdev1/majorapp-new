@@ -27,6 +27,12 @@ object BackupManager {
             o.put("expiryMillis", m.expiryMillis)
             o.put("updatedAtMillis", m.updatedAtMillis)
             o.put("history", JSONArray(m.historyJson))
+            o.put("idProof", m.idProof)
+            val idPhotoBase64 = m.idProofPhotoPath.takeIf { it.isNotBlank() }?.let { path ->
+                val f = File(path)
+                if (f.exists()) Base64.encodeToString(f.readBytes(), Base64.NO_WRAP) else null
+            }
+            if (idPhotoBase64 != null) o.put("idProofPhotoBase64", idPhotoBase64)
             val photoBase64 = m.photoPath?.let { path ->
                 val f = File(path)
                 if (f.exists()) Base64.encodeToString(f.readBytes(), Base64.NO_WRAP) else null
@@ -45,6 +51,7 @@ object BackupManager {
         val root = JSONObject(json)
         val arr = root.optJSONArray("members") ?: JSONArray()
         val photosDir = File(context.filesDir, "photos").apply { mkdirs() }
+        val idPhotosDir = File(context.filesDir, "id_photos").apply { mkdirs() }
         val result = mutableListOf<Member>()
 
         for (i in 0 until arr.length()) {
@@ -58,6 +65,16 @@ object BackupManager {
                 file.writeBytes(bytes)
                 photoPath = file.absolutePath
             }
+            // Old backups never had this field — optString's default of "" makes
+            // that read the same as "no ID proof provided", never a crash.
+            var idProofPhotoPath = ""
+            val idB64 = o.optString("idProofPhotoBase64", "")
+            if (idB64.isNotBlank()) {
+                val bytes = Base64.decode(idB64, Base64.NO_WRAP)
+                val file = File(idPhotosDir, "$id.jpg")
+                file.writeBytes(bytes)
+                idProofPhotoPath = file.absolutePath
+            }
             result.add(
                 Member(
                     id = id,
@@ -69,7 +86,9 @@ object BackupManager {
                     joinedMillis = o.getLong("joinedMillis"),
                     expiryMillis = o.getLong("expiryMillis"),
                     updatedAtMillis = o.optLong("updatedAtMillis", 0L),
-                    historyJson = o.getJSONArray("history").toString()
+                    historyJson = o.getJSONArray("history").toString(),
+                    idProof = o.optString("idProof", ""),
+                    idProofPhotoPath = idProofPhotoPath
                 )
             )
         }

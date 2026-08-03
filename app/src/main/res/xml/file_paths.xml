@@ -6,4 +6,6 @@
     <!-- Temp file for the "Take Photo" camera capture, before it's copied into
          permanent storage by Repository.savePhoto. -->
     <cache-path name="camera_captures" path="camera_captures/" />
+    <!-- Backup JSON files shared via "Share Backup File" (Feature 1). -->
+    <files-path name="backups" path="backups/" />
 </paths>

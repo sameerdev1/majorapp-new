@@ -35,5 +35,13 @@ data class Member(
      *  to claim the member's updated plan/expiry. See QrUtils. */
     val qrToken: String = "",
     /** Epoch millis after which [qrToken] is no longer valid. */
-    val qrTokenExpiryMillis: Long = 0
+    val qrTokenExpiryMillis: Long = 0,
+    /** Optional government/institution ID reference (Aadhaar, PAN, college ID, etc.)
+     *  — letters and digits only, validated in AddEditMemberScreen. Empty string
+     *  means "not provided", matching the backup JSON's "idProof":"" convention. */
+    val idProof: String = "",
+    /** Local file path to an optional photo of the member's ID proof document.
+     *  Empty string means "no photo", never null, so old records/backups without
+     *  this field default in safely. */
+    val idProofPhotoPath: String = ""
 )

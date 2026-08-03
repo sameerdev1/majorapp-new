@@ -40,14 +40,38 @@ class MembersViewModel(app: Application) : AndroidViewModel(app) {
     /** Copies the picked image into permanent app storage; safe to call synchronously. */
     fun savePhoto(memberId: String, uri: Uri): String = repo.savePhoto(memberId, uri)
 
+    /** Compresses and saves an ID proof photo (Feature 3); "" if the image couldn't be read. */
+    fun saveIdProofPhoto(memberId: String, uri: Uri): String = repo.saveIdProofPhoto(memberId, uri)
+    fun deleteIdProofPhoto(memberId: String) = repo.deleteIdProofPhoto(memberId)
+
     fun exportJson(onResult: (String) -> Unit) = viewModelScope.launch {
-        onResult(BackupManager.exportJson(getApplication(), repo.allOnce()))
+        val json = BackupManager.exportJson(getApplication(), repo.allOnce())
+        // Also stash a copy internally so Share Backup File always has the
+        // latest export to work with, without changing what this button does.
+        repo.saveInternalBackupCopy(json)
+        onResult(json)
     }
 
     /** Merges a restored backup in rather than replacing the whole table, so it can never
      *  silently delete local-only records that weren't in the backup file. */
     fun importJson(json: String) = viewModelScope.launch {
         repo.mergeAll(BackupManager.importJson(getApplication(), json))
+    }
+
+    // ---- Share Backup File (Feature 1) ----
+
+    /** The newest backup on disk, without creating one. Used just to show
+     *  filename/size/date on the Share Backup card. */
+    fun latestBackupFile(): java.io.File? = repo.latestInternalBackupFile()
+
+    /** What the Share Backup button calls: returns the latest backup, silently
+     *  generating one first if none exists yet. Null only if generation itself fails. */
+    fun getOrCreateLatestBackup(onResult: (java.io.File?) -> Unit) = viewModelScope.launch {
+        try {
+            onResult(repo.getOrCreateLatestBackup())
+        } catch (e: Exception) {
+            onResult(null)
+        }
     }
 
     // ---- Device sync (local Wi-Fi/hotspot only, up to 3 authorized devices) ----

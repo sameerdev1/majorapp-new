@@ -359,7 +359,9 @@ fun StatCard(label: String, value: String, modifier: Modifier = Modifier) {
 @Composable
 fun MembersScreen(members: List<Member>, onNavigate: (Screen) -> Unit) {
     var query by remember { mutableStateOf("") }
-    val filtered = members.filter { it.name.contains(query, ignoreCase = true) || it.phone.contains(query) }
+    val filtered = members.filter {
+        it.name.contains(query, ignoreCase = true) || it.phone.contains(query) || it.idProof.contains(query, ignoreCase = true)
+    }
 
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp).padding(top = 20.dp)) {
         Text("MEMBERS", color = GymColors.Text, fontWeight = FontWeight.Bold, fontSize = 22.sp)
@@ -439,6 +441,12 @@ fun AddEditMemberScreen(vm: MembersViewModel, existing: Member?, onNavigate: (Sc
     var fee by remember { mutableStateOf(existing?.fee?.toInt()?.toString() ?: "") }
 
     var passkey by remember { mutableStateOf(existing?.let { "" } ?: PasskeyUtils.generate()) }
+    var idProof by remember { mutableStateOf(existing?.idProof ?: "") }
+    var idProofError by remember { mutableStateOf(false) }
+    var idProofPhotoPath by remember { mutableStateOf(existing?.idProofPhotoPath ?: "") }
+    var showIdPhotoSourceSheet by remember { mutableStateOf(false) }
+    var confirmDeleteIdPhoto by remember { mutableStateOf(false) }
+    var pendingIdCameraUri by remember { mutableStateOf<Uri?>(null) }
     var phoneTaken by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
@@ -456,6 +464,20 @@ fun AddEditMemberScreen(vm: MembersViewModel, existing: Member?, onNavigate: (Sc
             val uri = newCameraCaptureUri(context)
             pendingCameraUri = uri
             takePhoto.launch(uri)
+        }
+    }
+
+    val pickIdPhoto = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
+        uri?.let { idProofPhotoPath = vm.saveIdProofPhoto(id, it) }
+    }
+    val takeIdPhoto = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
+        if (success) pendingIdCameraUri?.let { idProofPhotoPath = vm.saveIdProofPhoto(id, it) }
+    }
+    val requestIdCameraPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) {
+            val uri = newCameraCaptureUri(context)
+            pendingIdCameraUri = uri
+            takeIdPhoto.launch(uri)
         }
     }
 
@@ -524,6 +546,69 @@ fun AddEditMemberScreen(vm: MembersViewModel, existing: Member?, onNavigate: (Sc
                 )
             }
         }
+
+        LabeledField("ID Proof (Optional)") {
+            OutlinedTextField(
+                value = idProof,
+                onValueChange = { input ->
+                    val filtered = input.filter { it.isLetterOrDigit() && it.code < 128 }
+                    idProofError = filtered != input
+                    idProof = filtered
+                },
+                placeholder = { Text("Enter ID Number (Optional)", color = GymColors.TextFaint) },
+                modifier = Modifier.fillMaxWidth(), singleLine = true, colors = gymFieldColors(),
+                isError = idProofError
+            )
+            if (idProofError) {
+                Text(
+                    "Only letters and numbers are allowed.",
+                    color = GymColors.Danger, fontSize = 11.sp, modifier = Modifier.padding(top = 4.dp)
+                )
+            }
+        }
+
+        LabeledField("ID Proof Photo (Optional)") {
+            Text(
+                "Capture or upload an image of the member's ID proof for future verification.",
+                color = GymColors.TextFaint, fontSize = 11.sp, modifier = Modifier.padding(bottom = 8.dp)
+            )
+            val idPhotoFile = idProofPhotoPath.takeIf { it.isNotBlank() }?.let { File(it) }?.takeIf { it.exists() }
+            if (idPhotoFile != null) {
+                Column {
+                    AsyncImage(
+                        model = idPhotoFile, contentDescription = null, contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxWidth().height(160.dp).clip(RoundedCornerShape(12.dp))
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        OutlinedButton(onClick = { showIdPhotoSourceSheet = true }, modifier = Modifier.weight(1f)) {
+                            Text("Replace", color = GymColors.Text, fontSize = 13.sp)
+                        }
+                        OutlinedButton(onClick = { confirmDeleteIdPhoto = true }, modifier = Modifier.weight(1f)) {
+                            Text("Delete", color = GymColors.Danger, fontSize = 13.sp)
+                        }
+                    }
+                }
+            } else {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(GymColors.Surface2)
+                        .border(1.dp, GymColors.Border, RoundedCornerShape(12.dp))
+                        .clickable { showIdPhotoSourceSheet = true }
+                        .padding(20.dp)
+                ) {
+                    Icon(Icons.Filled.CameraAlt, null, tint = GymColors.TextFaint, modifier = Modifier.size(22.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Icon(Icons.Filled.Description, null, tint = GymColors.TextFaint, modifier = Modifier.size(22.dp))
+                    Spacer(Modifier.width(12.dp))
+                    Text("Tap to add ID Proof Photo", color = GymColors.TextFaint, fontSize = 13.sp)
+                }
+            }
+        }
+
         if (existing == null) {
             LabeledField("Passkey") {
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
@@ -590,7 +675,9 @@ fun AddEditMemberScreen(vm: MembersViewModel, existing: Member?, onNavigate: (Sc
                     // token/expiry; a plain edit (not add, not renew) keeps the existing one.
                     qrToken = existing?.qrToken ?: QrUtils.freshToken(),
                     qrTokenExpiryMillis = existing?.qrTokenExpiryMillis
-                        ?: (System.currentTimeMillis() + QrUtils.TOKEN_VALIDITY_MILLIS)
+                        ?: (System.currentTimeMillis() + QrUtils.TOKEN_VALIDITY_MILLIS),
+                    idProof = idProof,
+                    idProofPhotoPath = idProofPhotoPath
                 )
                 vm.save(member)
                 if (existing == null) onNavigate(Screen.Registered(id, passkey)) else onNavigate(Screen.Profile(id))
@@ -645,6 +732,68 @@ fun AddEditMemberScreen(vm: MembersViewModel, existing: Member?, onNavigate: (Sc
             }
         )
     }
+
+    if (showIdPhotoSourceSheet) {
+        AlertDialog(
+            onDismissRequest = { showIdPhotoSourceSheet = false },
+            containerColor = GymColors.Surface,
+            title = { Text("ID Proof Photo", color = GymColors.Text) },
+            text = {
+                Column {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                showIdPhotoSourceSheet = false
+                                requestIdCameraPermission.launch(android.Manifest.permission.CAMERA)
+                            }
+                            .padding(vertical = 12.dp)
+                    ) {
+                        Icon(Icons.Filled.CameraAlt, null, tint = GymColors.Accent)
+                        Spacer(Modifier.width(12.dp))
+                        Text("Camera", color = GymColors.Text, fontSize = 14.sp)
+                    }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                showIdPhotoSourceSheet = false
+                                pickIdPhoto.launch("image/*")
+                            }
+                            .padding(vertical = 12.dp)
+                    ) {
+                        Icon(Icons.Filled.PhotoLibrary, null, tint = GymColors.Accent)
+                        Spacer(Modifier.width(12.dp))
+                        Text("Gallery", color = GymColors.Text, fontSize = 14.sp)
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showIdPhotoSourceSheet = false }) { Text("Cancel", color = GymColors.TextMuted) }
+            }
+        )
+    }
+
+    if (confirmDeleteIdPhoto) {
+        AlertDialog(
+            onDismissRequest = { confirmDeleteIdPhoto = false },
+            containerColor = GymColors.Surface,
+            title = { Text("Remove ID Proof Photo?", color = GymColors.Text) },
+            text = { Text("This can't be undone.", color = GymColors.TextMuted) },
+            confirmButton = {
+                TextButton(onClick = {
+                    vm.deleteIdProofPhoto(id)
+                    idProofPhotoPath = ""
+                    confirmDeleteIdPhoto = false
+                }) { Text("Delete", color = GymColors.Danger) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDeleteIdPhoto = false }) { Text("Cancel", color = GymColors.TextMuted) }
+            }
+        )
+    }
 }
 
 // ---------- Profile ----------
@@ -653,6 +802,7 @@ fun AddEditMemberScreen(vm: MembersViewModel, existing: Member?, onNavigate: (Sc
 fun ProfileScreen(member: Member, vm: MembersViewModel, onNavigate: (Screen) -> Unit) {
     var confirmDelete by remember { mutableStateOf(false) }
     var showPhoto by remember { mutableStateOf(false) }
+    var showIdPhoto by remember { mutableStateOf(false) }
     val status = statusOf(member.expiryMillis)
     val days = daysBetweenNow(member.expiryMillis)
     val history = remember(member.historyJson) { member.historyJson.toHistoryList().reversed() }
@@ -692,7 +842,28 @@ fun ProfileScreen(member: Member, vm: MembersViewModel, onNavigate: (Screen) -> 
                     ProfileRow(Icons.Filled.Refresh, "Renewed", formatDate(lastRenewedMillis))
                 }
                 ProfileRow(Icons.Filled.CalendarToday, "Expires", formatDate(member.expiryMillis))
-                ProfileRow(Icons.Filled.CurrencyRupee, "Current Plan", "${member.plan} \u00B7 ${formatMoney(member.fee)}", last = true)
+                ProfileRow(Icons.Filled.CurrencyRupee, "Current Plan", "${member.plan} \u00B7 ${formatMoney(member.fee)}")
+                ProfileRow(Icons.Filled.Badge, "ID Proof", member.idProof.ifBlank { "Not Provided" }, last = true)
+            }
+            Spacer(Modifier.height(14.dp))
+            Card(colors = CardDefaults.cardColors(containerColor = GymColors.Surface), modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp)) {
+                    Text("ID PROOF PHOTO", color = GymColors.TextFaint, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                    Spacer(Modifier.height(10.dp))
+                    val idPhotoFile = member.idProofPhotoPath.takeIf { it.isNotBlank() }?.let { File(it) }?.takeIf { it.exists() }
+                    if (idPhotoFile != null) {
+                        AsyncImage(
+                            model = idPhotoFile, contentDescription = "ID proof photo", contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(140.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable { showIdPhoto = true }
+                        )
+                    } else {
+                        Text("No ID Proof Photo", color = GymColors.TextFaint, fontSize = 13.sp)
+                    }
+                }
             }
             Spacer(Modifier.height(16.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
@@ -734,6 +905,9 @@ fun ProfileScreen(member: Member, vm: MembersViewModel, onNavigate: (Screen) -> 
 
     if (showPhoto) {
         FullScreenPhotoViewer(member.photoPath, member.name, onDismiss = { showPhoto = false })
+    }
+    if (showIdPhoto) {
+        FullScreenPhotoViewer(member.idProofPhotoPath.ifBlank { null }, "${member.name} \u2014 ID Proof", onDismiss = { showIdPhoto = false })
     }
 
     if (confirmDelete) {
@@ -923,12 +1097,18 @@ fun RenewalSuccessScreen(member: Member, justRenewed: Boolean = false, onNavigat
 fun BackupScreen(vm: MembersViewModel) {
     val context = LocalContext.current
     var message by remember { mutableStateOf<String?>(null) }
+    var shareMessage by remember { mutableStateOf<String?>(null) }
+    var sharing by remember { mutableStateOf(false) }
+    var latestBackup by remember { mutableStateOf(vm.latestBackupFile()) }
+
+    fun refreshLatestBackup() { latestBackup = vm.latestBackupFile() }
 
     val createDoc = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri: Uri? ->
         if (uri != null) {
             vm.exportJson { json ->
                 context.contentResolver.openOutputStream(uri)?.use { it.write(json.toByteArray()) }
                 message = "Backup exported."
+                refreshLatestBackup()
             }
         }
     }
@@ -984,6 +1164,60 @@ fun BackupScreen(vm: MembersViewModel) {
         message?.let {
             Spacer(Modifier.height(16.dp))
             Text(it, color = GymColors.Success, fontSize = 12.sp, modifier = Modifier.align(Alignment.CenterHorizontally))
+        }
+
+        Spacer(Modifier.height(14.dp))
+        Card(colors = CardDefaults.cardColors(containerColor = GymColors.Surface), modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.Share, null, tint = GymColors.Accent, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Share Backup File", color = GymColors.Text, fontWeight = FontWeight.Medium)
+                }
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "Quickly share your latest MajorGym backup with WhatsApp, Google Drive, Gmail, Telegram, " +
+                        "Bluetooth or any compatible application installed on your phone.",
+                    color = GymColors.TextMuted, fontSize = 12.sp
+                )
+                Spacer(Modifier.height(10.dp))
+
+                if (latestBackup != null) {
+                    val f = latestBackup!!
+                    Column(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(GymColors.Surface2).padding(10.dp)) {
+                        Text(f.name, color = GymColors.Text, fontSize = 11.sp)
+                        Text(
+                            "${formatBackupSize(f.length())} \u00B7 ${formatDate(f.lastModified())} \u00B7 ${formatTimeOfDay(f.lastModified())}",
+                            color = GymColors.TextFaint, fontSize = 10.sp, modifier = Modifier.padding(top = 2.dp)
+                        )
+                    }
+                    Spacer(Modifier.height(10.dp))
+                }
+
+                Button(
+                    onClick = {
+                        sharing = true
+                        shareMessage = if (latestBackup == null) "No backup found. Creating a backup\u2026" else null
+                        vm.getOrCreateLatestBackup { file ->
+                            sharing = false
+                            if (file != null) {
+                                shareMessage = "Backup ready to share."
+                                refreshLatestBackup()
+                                BackupShareUtils.shareBackupFile(context, file)
+                            } else {
+                                shareMessage = "Unable to create backup."
+                            }
+                        }
+                    },
+                    enabled = !sharing,
+                    colors = ButtonDefaults.buttonColors(containerColor = GymColors.Accent, disabledContainerColor = GymColors.Surface2),
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text(if (sharing) "Preparing\u2026" else "Share Backup") }
+
+                shareMessage?.let {
+                    Text(it, color = GymColors.TextMuted, fontSize = 11.sp, modifier = Modifier.padding(top = 8.dp))
+                }
+            }
         }
     }
 }
