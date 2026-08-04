@@ -5,19 +5,24 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
+// Premium blue color system, matched to the MajorGym client app's theme
+// (see the client's ClientColors) so both apps read as one consistent
+// design system. Only the color values changed here — every field name
+// and the theme function name below are unchanged, so nothing else in
+// the app needed to be touched.
 object GymColors {
-    val Bg = Color(0xFF0D0D0D)
-    val Surface = Color(0xFF1C1C1E)
-    val Surface2 = Color(0xFF242426)
-    val Border = Color(0x26FFFFFF)
-    val Accent = Color(0xFFC6FF4D)
-    val Gold = Color(0xFFC6FF4D)
-    val Success = Color(0xFF43D08A)
-    val Warning = Color(0xFFFFB020)
-    val Danger = Color(0xFFFF5468)
-    val Text = Color(0xFFF3F4F6)
-    val TextMuted = Color(0xFF8B93A1)
-    val TextFaint = Color(0xFF5B6472)
+    val Bg = Color(0xFF090E18)
+    val Surface = Color(0xFF111827)
+    val Surface2 = Color(0xFF1E293B)
+    val Border = Color(0x263B82F6)
+    val Accent = Color(0xFF3B82F6)
+    val Gold = Color(0xFF60A5FA)
+    val Success = Color(0xFF22C55E)
+    val Warning = Color(0xFFF59E0B)
+    val Danger = Color(0xFFEF4444)
+    val Text = Color(0xFFFFFFFF)
+    val TextMuted = Color(0xFF94A3B8)
+    val TextFaint = Color(0xFF64748B)
 }
 
 private val DarkColors = darkColorScheme(
