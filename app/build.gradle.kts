@@ -64,4 +64,8 @@ dependencies {
     // QR generation (member QR + static gym QR — spec sections 2 and 9)
     implementation("com.google.zxing:core:3.5.3")
 
+    // Video playback for the startup splash screen
+    implementation("androidx.media3:media3-exoplayer:1.3.1")
+    implementation("androidx.media3:media3-ui:1.3.1")
+
 }
