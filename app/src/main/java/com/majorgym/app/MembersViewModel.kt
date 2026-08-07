@@ -28,6 +28,20 @@ class MembersViewModel(app: Application) : AndroidViewModel(app) {
     fun save(member: Member) = viewModelScope.launch { repo.save(member) }
     fun delete(member: Member) = viewModelScope.launch { repo.delete(member) }
 
+    /** Stores/replaces a member's fingerprint template captured via [com.majorgym.app.data.FingerprintScanner]. */
+    fun saveFingerprintTemplate(member: Member, template: ByteArray) = viewModelScope.launch {
+        repo.save(member.copy(fingerprintTemplate = template, updatedAtMillis = System.currentTimeMillis()))
+    }
+
+    fun clearFingerprintTemplate(member: Member) = viewModelScope.launch {
+        repo.save(member.copy(fingerprintTemplate = null, updatedAtMillis = System.currentTimeMillis()))
+    }
+
+    /** True the instant a matching member's attendance is recorded at check-in. */
+    fun recordAttendance(member: Member) = viewModelScope.launch {
+        repo.save(member.copy(lastAttendanceMillis = System.currentTimeMillis()))
+    }
+
     /** Checks the "phone number already registered" rule before saving (spec section 1). */
     suspend fun isPhoneTaken(phone: String, excludingId: String = ""): Boolean =
         repo.isPhoneTaken(phone, excludingId)

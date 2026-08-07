@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -74,6 +75,15 @@ fun RegistrationSuccessScreen(member: Member, passkey: String, onNavigate: (Scre
             Icon(Icons.Filled.Share, contentDescription = null)
             Spacer(Modifier.width(8.dp))
             Text("Share Welcome Message", fontWeight = FontWeight.Bold)
+        }
+        Spacer(Modifier.height(12.dp))
+        OutlinedButton(
+            onClick = { onNavigate(Screen.EnrollFingerprint(member.id, returnTo = Screen.Profile(member.id))) },
+            modifier = Modifier.fillMaxWidth().height(48.dp)
+        ) {
+            Icon(Icons.Filled.Fingerprint, contentDescription = null)
+            Spacer(Modifier.width(8.dp))
+            Text("Enroll Fingerprint Now")
         }
         Spacer(Modifier.height(12.dp))
         OutlinedButton(

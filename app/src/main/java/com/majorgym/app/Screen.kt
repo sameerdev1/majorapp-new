@@ -19,4 +19,8 @@ sealed class Screen {
     data class Renewed(val id: String, val justRenewed: Boolean = false) : Screen()
     data object Backup : Screen()
     data object Sync : Screen()
+    /** Enroll/re-enroll a member's fingerprint on the connected SecuGen USB
+     *  scanner. Reachable from Profile. [returnTo] is where "Done"/"Back" goes —
+     *  Registered right after sign-up, or Profile when re-enrolling later. */
+    data class EnrollFingerprint(val id: String, val returnTo: Screen = Profile(id)) : Screen()
 }

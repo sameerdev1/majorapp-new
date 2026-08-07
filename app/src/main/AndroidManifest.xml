@@ -14,6 +14,15 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
 
+    <!-- SecuGen USB fingerprint scanner (enroll + check-in verification).
+         android.permission.USB_PERMISSION is the SDK's own action name, not a
+         real platform permission, but it's declared/matched here as the SDK
+         expects. required="false" so the app still installs on tablets/phones
+         without a USB-OTG host port; the scanner features are simply hidden
+         if no compatible device is ever attached. -->
+    <uses-permission android:name="android.permission.USB_PERMISSION" />
+    <uses-feature android:name="android.hardware.usb.host" android:required="false" />
+
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
@@ -30,6 +39,15 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+
+            <!-- So the OS routes "USB scanner plugged in" straight to this activity
+                 (e.g. front-desk tablet where the reader is attached mid-session). -->
+            <intent-filter>
+                <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
+            </intent-filter>
+            <meta-data
+                android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED"
+                android:resource="@xml/device_filter" />
         </activity>
 
         <!-- Lets QrShareUtils hand a QR bitmap to other apps (WhatsApp, Gallery,

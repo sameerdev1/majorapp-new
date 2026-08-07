@@ -35,6 +35,18 @@ class MainActivity : ComponentActivity() {
                 if (showSplash) {
                     SplashScreen(onFinished = { showSplash = false })
                 } else {
+                // Kiosk mode: connects to the USB fingerprint scanner as soon as the
+                // app is past the splash screen, and keeps listening continuously for
+                // the rest of the time the app is open — no button press required.
+                // Paused only while EnrollFingerprint has its own exclusive scanner
+                // session open (the USB device can only be held by one connection).
+                val kioskPaused = screen is Screen.EnrollFingerprint
+                val kioskState by rememberKioskState(
+                    activity = this@MainActivity,
+                    members = members,
+                    paused = kioskPaused,
+                    onResolved = { screen = Screen.Dashboard }
+                )
                 // Surface is transparent so the background image behind it shows through
                 // on every screen; a dark scrim keeps text/cards readable over the photo.
                 Surface(modifier = Modifier.fillMaxSize(), color = Color.Transparent) {
@@ -73,8 +85,15 @@ class MainActivity : ComponentActivity() {
                             }
                             Screen.Backup -> BackupScreen(vm)
                             Screen.Sync -> SyncScreen(vm)
+                            is Screen.EnrollFingerprint -> {
+                                val m = members.find { it.id == s.id }
+                                if (m != null) EnrollFingerprintScreen(m, vm, s.returnTo) { screen = it }
+                            }
                         }
                         BottomNav(screen, modifier = Modifier.align(Alignment.BottomCenter)) { screen = it }
+
+                        // Drawn last so it sits above the dashboard/bottom nav/every screen.
+                        KioskResultOverlay(kioskState.first, kioskState.second)
                     }
                 }
                 }

@@ -843,7 +843,8 @@ fun ProfileScreen(member: Member, vm: MembersViewModel, onNavigate: (Screen) -> 
                 }
                 ProfileRow(Icons.Filled.CalendarToday, "Expires", formatDate(member.expiryMillis))
                 ProfileRow(Icons.Filled.CurrencyRupee, "Current Plan", "${member.plan} \u00B7 ${formatMoney(member.fee)}")
-                ProfileRow(Icons.Filled.Badge, "ID Proof", member.idProof.ifBlank { "Not Provided" }, last = true)
+                ProfileRow(Icons.Filled.Badge, "ID Proof", member.idProof.ifBlank { "Not Provided" })
+                ProfileRow(Icons.Filled.Fingerprint, "Fingerprint", if (member.fingerprintTemplate != null) "Enrolled" else "Not Enrolled", last = true)
             }
             Spacer(Modifier.height(14.dp))
             Card(colors = CardDefaults.cardColors(containerColor = GymColors.Surface), modifier = Modifier.fillMaxWidth()) {
@@ -886,6 +887,12 @@ fun ProfileScreen(member: Member, vm: MembersViewModel, onNavigate: (Screen) -> 
                     }
                     onNavigate(Screen.Renewed(member.id))
                 }
+                ActionButton(
+                    Icons.Filled.Fingerprint,
+                    if (member.fingerprintTemplate != null) "Re-enroll" else "Enroll",
+                    GymColors.Accent,
+                    Modifier.weight(1f)
+                ) { onNavigate(Screen.EnrollFingerprint(member.id)) }
             }
             Text("HISTORY", color = GymColors.TextFaint, fontSize = 11.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(bottom = 8.dp))
         }

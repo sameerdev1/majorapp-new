@@ -10,7 +10,8 @@ android {
 
     defaultConfig {
         applicationId = "com.majorgym.app"
-        minSdk = 26
+        // SecuGen FDx SDK Pro (fingerprint scanner) requires Android 8.1 (API 27)+
+        minSdk = 27
         targetSdk = 34
         versionCode = 1
         versionName = "1.0"
@@ -39,6 +40,9 @@ android {
 
     packaging {
         resources.excludes.add("META-INF/*")
+        jniLibs {
+            useLegacyPackaging = true
+        }
     }
 }
 
@@ -53,6 +57,7 @@ dependencies {
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
+    implementation("androidx.compose.animation:animation")
     debugImplementation("androidx.compose.ui:ui-tooling")
 
     implementation("androidx.room:room-runtime:2.6.1")
@@ -68,4 +73,7 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer:1.3.1")
     implementation("androidx.media3:media3-ui:1.3.1")
 
+    // SecuGen FDx SDK Pro — USB fingerprint scanner (enroll + verify at check-in)
+    implementation(files("libs/FDxSDKProFDAndroid.jar"))
+    implementation(files("libs/AlCamera.jar"))
 }

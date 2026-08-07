@@ -38,6 +38,10 @@ object BackupManager {
                 if (f.exists()) Base64.encodeToString(f.readBytes(), Base64.NO_WRAP) else null
             }
             if (photoBase64 != null) o.put("photoBase64", photoBase64)
+            // Fingerprint template (a few hundred bytes), not an image — safe/small to embed.
+            if (m.fingerprintTemplate != null) {
+                o.put("fingerprintTemplateBase64", Base64.encodeToString(m.fingerprintTemplate, Base64.NO_WRAP))
+            }
             arr.put(o)
         }
         return JSONObject().apply {
@@ -88,7 +92,9 @@ object BackupManager {
                     updatedAtMillis = o.optLong("updatedAtMillis", 0L),
                     historyJson = o.getJSONArray("history").toString(),
                     idProof = o.optString("idProof", ""),
-                    idProofPhotoPath = idProofPhotoPath
+                    idProofPhotoPath = idProofPhotoPath,
+                    fingerprintTemplate = o.optString("fingerprintTemplateBase64", "")
+                        .takeIf { it.isNotBlank() }?.let { Base64.decode(it, Base64.NO_WRAP) }
                 )
             )
         }

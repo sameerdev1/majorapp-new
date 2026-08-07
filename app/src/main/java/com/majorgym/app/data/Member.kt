@@ -43,5 +43,11 @@ data class Member(
     /** Local file path to an optional photo of the member's ID proof document.
      *  Empty string means "no photo", never null, so old records/backups without
      *  this field default in safely. */
-    val idProofPhotoPath: String = ""
+    val idProofPhotoPath: String = "",
+    /** ISO 19794-2 fingerprint template captured via a SecuGen USB scanner
+     *  (see FingerprintScanner). Null means "not enrolled". This is a small
+     *  (a few hundred byte) mathematical template, not a fingerprint image —
+     *  the raw scan image is never stored. Used for 1:1 verification at
+     *  check-in against the member the front-desk staff has already selected. */
+    val fingerprintTemplate: ByteArray? = null
 )
