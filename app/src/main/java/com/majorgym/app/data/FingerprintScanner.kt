@@ -52,10 +52,13 @@ class FingerprintScanner(private val activity: ComponentActivity) {
         data class Error(val code: Long) : CaptureResult()
     }
 
-    private val sgfplib = JSGFPLib(activity, activity.getSystemService(Context.USB_SERVICE) as UsbManager)
+    private var sgfplib: JSGFPLib? = null
     private var imageWidth = 0
     private var imageHeight = 0
     private var maxTemplateSize = intArrayOf(400)
+    /** True only once Init() has actually succeeded on [sgfplib] — distinct from
+     *  [deviceOpened], and what guards whether it's safe to call native Close(). */
+    private var initialized = false
     private var deviceOpened = false
     private var receiverRegistered = false
 
@@ -75,34 +78,46 @@ class FingerprintScanner(private val activity: ComponentActivity) {
      * Initializes the SDK, finds an attached SecuGen device, requests USB
      * permission if not already granted (suspends until the user answers the
      * system dialog), and opens the device ready for capture.
+     *
+     * Safe to call when no scanner is plugged in: this simply returns
+     * [OpenResult.DeviceNotFound] rather than throwing, and never leaves
+     * [sgfplib]/[initialized] in a state that would make [close] unsafe.
      */
     suspend fun open(): OpenResult = withContext(Dispatchers.IO) {
-        val initError = sgfplib.Init(SGFDxDeviceName.SG_DEV_AUTO)
-        if (initError != SGFDxErrorCode.SGFDX_ERROR_NONE) {
+        val lib = runCatching {
+            JSGFPLib(activity, activity.getSystemService(Context.USB_SERVICE) as UsbManager)
+        }.getOrNull() ?: return@withContext OpenResult.DeviceNotFound
+        sgfplib = lib
+
+        val initError = runCatching { lib.Init(SGFDxDeviceName.SG_DEV_AUTO) }.getOrNull()
+        if (initError == null || initError != SGFDxErrorCode.SGFDX_ERROR_NONE) {
+            // Init failed (or threw) — nothing further was allocated on the native
+            // side worth releasing, so leave initialized=false and bail out cleanly.
             return@withContext OpenResult.DeviceNotFound
         }
+        initialized = true
 
-        val usbDevice: UsbDevice = sgfplib.GetUsbDevice() ?: return@withContext OpenResult.DeviceNotFound
-        val usbManager = sgfplib.GetUsbManager()
+        val usbDevice: UsbDevice = lib.GetUsbDevice() ?: return@withContext OpenResult.DeviceNotFound
+        val usbManager = lib.GetUsbManager()
 
         if (!usbManager.hasPermission(usbDevice)) {
             val granted = requestUsbPermission(usbDevice, usbManager)
             if (!granted) return@withContext OpenResult.PermissionDenied
         }
 
-        val openError = sgfplib.OpenDevice(0L)
-        if (openError != SGFDxErrorCode.SGFDX_ERROR_NONE) {
-            return@withContext OpenResult.Error(openError)
+        val openError = runCatching { lib.OpenDevice(0L) }.getOrNull()
+        if (openError == null || openError != SGFDxErrorCode.SGFDX_ERROR_NONE) {
+            return@withContext OpenResult.Error(openError ?: -1L)
         }
         deviceOpened = true
 
         val deviceInfo = SGDeviceInfoParam()
-        sgfplib.GetDeviceInfo(deviceInfo)
+        lib.GetDeviceInfo(deviceInfo)
         imageWidth = deviceInfo.imageWidth
         imageHeight = deviceInfo.imageHeight
 
-        sgfplib.SetTemplateFormat(SGFDxTemplateFormat.TEMPLATE_FORMAT_ISO19794)
-        sgfplib.GetMaxTemplateSize(maxTemplateSize)
+        lib.SetTemplateFormat(SGFDxTemplateFormat.TEMPLATE_FORMAT_ISO19794)
+        lib.GetMaxTemplateSize(maxTemplateSize)
 
         OpenResult.Success
     }
@@ -134,11 +149,12 @@ class FingerprintScanner(private val activity: ComponentActivity) {
      */
     suspend fun captureTemplate(timeoutMs: Int = 10000, minQuality: Int = 50): CaptureResult =
         withContext(Dispatchers.IO) {
-            if (!deviceOpened || imageWidth == 0 || imageHeight == 0) {
+            val lib = sgfplib
+            if (lib == null || !deviceOpened || imageWidth == 0 || imageHeight == 0) {
                 return@withContext CaptureResult.Error(-1)
             }
             val image = ByteArray(imageWidth * imageHeight)
-            val captureError = sgfplib.GetImageEx(image, timeoutMs.toLong(), minQuality.toLong())
+            val captureError = lib.GetImageEx(image, timeoutMs.toLong(), minQuality.toLong())
             if (captureError == SGFDxErrorCode.SGFDX_ERROR_TIME_OUT) {
                 return@withContext CaptureResult.Timeout
             }
@@ -147,7 +163,7 @@ class FingerprintScanner(private val activity: ComponentActivity) {
             }
 
             val quality = intArrayOf(0)
-            sgfplib.GetImageQuality(imageWidth.toLong(), imageHeight.toLong(), image, quality)
+            lib.GetImageQuality(imageWidth.toLong(), imageHeight.toLong(), image, quality)
 
             val fpInfo = SGFingerInfo().apply {
                 FingerNumber = 1
@@ -156,33 +172,47 @@ class FingerprintScanner(private val activity: ComponentActivity) {
                 ViewNumber = 1
             }
             val template = ByteArray(maxTemplateSize[0])
-            val templateError = sgfplib.CreateTemplate(fpInfo, image, template)
+            val templateError = lib.CreateTemplate(fpInfo, image, template)
             if (templateError != SGFDxErrorCode.SGFDX_ERROR_NONE) {
                 return@withContext CaptureResult.Error(templateError)
             }
 
             val size = intArrayOf(0)
-            sgfplib.GetTemplateSize(template, size)
+            lib.GetTemplateSize(template, size)
             val trimmed = if (size[0] in 1 until template.size) template.copyOf(size[0]) else template
             CaptureResult.Success(trimmed, quality[0])
         }
 
     /** Compares two ISO 19794-2 templates (e.g. a freshly captured scan against a
-     *  member's stored [Member.fingerprintTemplate]) at normal security level. */
+     *  member's stored [Member.fingerprintTemplate]) at normal security level.
+     *  Returns false (never throws) if the scanner was never successfully opened. */
     suspend fun match(template1: ByteArray, template2: ByteArray): Boolean = withContext(Dispatchers.IO) {
+        val lib = sgfplib ?: return@withContext false
         val matched = BooleanArray(1)
-        sgfplib.MatchTemplate(template1, template2, SGFDxSecurityLevel.SL_NORMAL, matched)
+        runCatching { lib.MatchTemplate(template1, template2, SGFDxSecurityLevel.SL_NORMAL, matched) }
         matched[0]
     }
 
-    /** Releases the device and unregisters the USB permission receiver. Safe to call
-     *  multiple times; always call this when leaving the enroll/check-in screen. */
+    /**
+     * Releases the device and unregisters the USB permission receiver, if either
+     * was ever actually acquired. Safe to call multiple times, safe to call when
+     * a scanner was never found/opened (e.g. the user backed out of the enroll
+     * screen before any device connected), and never throws — always call this
+     * when leaving the enroll/check-in screen.
+     */
     fun close() {
-        if (deviceOpened) {
-            runCatching { sgfplib.CloseDevice() }
-            deviceOpened = false
+        val lib = sgfplib
+        if (lib != null) {
+            if (deviceOpened) {
+                runCatching { lib.CloseDevice() }
+                deviceOpened = false
+            }
+            if (initialized) {
+                runCatching { lib.Close() }
+                initialized = false
+            }
         }
-        runCatching { sgfplib.Close() }
+        sgfplib = null
         if (receiverRegistered) {
             runCatching { activity.unregisterReceiver(usbReceiver) }
             receiverRegistered = false

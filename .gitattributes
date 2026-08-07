@@ -1,0 +1,4 @@
+# Native libraries and SDK binaries — never text-convert these
+*.so binary
+*.jar binary
+app/src/main/jniLibs/** binary

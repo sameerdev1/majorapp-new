@@ -1,6 +1,7 @@
 package com.majorgym.app.ui
 
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -54,7 +55,21 @@ fun EnrollFingerprintScreen(member: Member, vm: MembersViewModel, returnTo: Scre
     var firstScan by remember { mutableStateOf<ByteArray?>(null) }
     var done by remember { mutableStateOf(false) }
 
-    DisposableEffect(Unit) { onDispose { scanner.close() } }
+    DisposableEffect(Unit) {
+        onDispose {
+            // scanner.close() is already fully defensive (no-ops safely when no
+            // device was ever found/opened), but this belt-and-braces catch makes
+            // sure nothing thrown here can ever take the whole screen transition
+            // down with it.
+            runCatching { scanner.close() }
+        }
+    }
+
+    // Handles both the on-screen ← arrow (below) and the hardware/gesture back
+    // button. Without this, system back has no "previous screen" to return to on
+    // this manual-navigation app and falls through to closing the Activity — this
+    // makes it behave identically to tapping ← Back.
+    BackHandler(enabled = true) { onNavigate(returnTo) }
 
     fun runScan() {
         scope.launch {
