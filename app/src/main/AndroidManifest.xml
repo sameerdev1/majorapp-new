@@ -23,6 +23,18 @@
     <uses-permission android:name="android.permission.USB_PERMISSION" />
     <uses-feature android:name="android.hardware.usb.host" android:required="false" />
 
+    <!-- Kiosk mode: lets the fingerprint scanner keep listening while the app is
+         backgrounded (Home button), per the agreed spec. connectedDevice is the
+         foreground-service type Android 14+ requires be declared for USB-device
+         work. POST_NOTIFICATIONS is needed on Android 13+ for the (mandatory,
+         OS-enforced) ongoing notification to actually show. USE_FULL_SCREEN_INTENT
+         lets a recognized/not-recognized result bring the app back to the front
+         automatically instead of just sitting as a tappable notification. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
@@ -34,7 +46,8 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:label="@string/app_name">
+            android:label="@string/app_name"
+            android:launchMode="singleTask">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -49,6 +62,14 @@
                 android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED"
                 android:resource="@xml/device_filter" />
         </activity>
+
+        <!-- Kiosk mode background listener — see FingerprintKioskService for full
+             lifecycle notes (starts only once a scanner is detected, survives Home,
+             stops if the app is swiped from Recent Apps). -->
+        <service
+            android:name=".kiosk.FingerprintKioskService"
+            android:exported="false"
+            android:foregroundServiceType="connectedDevice" />
 
         <!-- Lets QrShareUtils hand a QR bitmap to other apps (WhatsApp, Gallery,
              Print, etc.) via a content:// URI instead of a raw file:// path,

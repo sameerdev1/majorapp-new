@@ -1,8 +1,6 @@
 package com.majorgym.app.ui
 
-import android.media.AudioManager
-import android.media.ToneGenerator
-import androidx.activity.ComponentActivity
+import android.content.Context
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -28,124 +26,58 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.majorgym.app.data.Member
-import com.majorgym.app.data.MemberStatus
-import com.majorgym.app.data.FingerprintScanner
-import com.majorgym.app.data.statusOf
+import com.majorgym.app.kiosk.FingerprintKioskService
+import com.majorgym.app.kiosk.KioskBus
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 
 /** What the kiosk is currently showing. IDLE = dashboard visible, silently listening. */
 enum class KioskPhase { IDLE, MEMBER_ACTIVE, MEMBER_EXPIRED, NOT_RECOGNIZED }
 
-private const val MATCHED_DISPLAY_MS = 3000L
-private const val NOT_RECOGNIZED_DISPLAY_MS = 1500L
-/** How long a single "wait for finger" call blocks before we loop and try again.
- *  Short enough that pausing (e.g. to enroll someone) reacts quickly. */
-private const val LISTEN_SLICE_MS = 4000
-/** How often to retry opening the device if it's not found (e.g. not plugged in yet). */
-private const val REOPEN_RETRY_MS = 4000L
-
-/** Simple system beeps via ToneGenerator — no bundled audio assets required. */
-private object KioskSound {
-    fun playSuccess() = runCatching {
-        val tg = ToneGenerator(AudioManager.STREAM_MUSIC, 90)
-        tg.startTone(ToneGenerator.TONE_PROP_ACK, 200)
-        tg.release()
-    }
-    fun playError() = runCatching {
-        val tg = ToneGenerator(AudioManager.STREAM_MUSIC, 90)
-        tg.startTone(ToneGenerator.TONE_PROP_NACK, 350)
-        tg.release()
-    }
-}
+/** How often to re-check for a connected scanner / re-request the service while idle. */
+private const val SERVICE_RETRY_MS = 3000L
 
 /**
- * Owns the continuous background fingerprint loop for kiosk mode: opens the
- * USB scanner once, keeps it open, and repeatedly waits for a finger the
- * entire time the app is running — no button ever needs to be pressed.
- *
- * [paused] should be true only while another screen needs exclusive access to
- * the scanner (currently: [EnrollFingerprintScreen]), since the USB device can
- * only be held open by one connection at a time. The loop releases the device
- * while paused and reopens it automatically the moment it's unpaused.
- *
- * On a resolved scan (matched or not), [onResolved] is invoked so the caller
- * can force navigation back to the dashboard, per the kiosk spec.
+ * Bridges [FingerprintKioskService] (the actual scanner owner — see that class
+ * for why scanning lives in a service, not here) to this existing overlay UI.
+ * This composable does no scanning itself: it only
+ *  (a) asks the service to start once a scanner is actually detected, or to
+ *      stop while [paused] (enrollment needs exclusive USB access), and
+ *  (b) reads [KioskBus] to know what the (unchanged) overlay below should show,
+ *      whether that result arrived while this app was foreground or background.
  */
 @Composable
-fun rememberKioskState(
-    activity: ComponentActivity,
+fun rememberKioskCoordinator(
+    context: Context,
     members: List<Member>,
-    paused: Boolean,
-    onResolved: () -> Unit
+    paused: Boolean
 ): State<Pair<KioskPhase, Member?>> {
-    val scanner = remember { FingerprintScanner(activity) }
-    val phase = remember { mutableStateOf(KioskPhase.IDLE) }
-    val matchedMember = remember { mutableStateOf<Member?>(null) }
+    val event by KioskBus.current.collectAsState()
     val currentPaused by rememberUpdatedState(paused)
     val currentMembers by rememberUpdatedState(members)
-    val currentOnResolved by rememberUpdatedState(onResolved)
-
-    DisposableEffect(Unit) { onDispose { scanner.close() } }
 
     LaunchedEffect(Unit) {
-        var deviceOpen = false
         while (isActive) {
             if (currentPaused) {
-                if (deviceOpen) {
-                    scanner.close()
-                    deviceOpen = false
-                }
-                delay(300)
-                continue
+                FingerprintKioskService.requestStop(context)
+            } else if (FingerprintKioskService.isScannerConnected(context)) {
+                FingerprintKioskService.requestStart(context)
             }
-
-            if (!deviceOpen) {
-                deviceOpen = scanner.open() is FingerprintScanner.OpenResult.Success
-                if (!deviceOpen) {
-                    delay(REOPEN_RETRY_MS)
-                    continue
-                }
-            }
-
-            when (val capture = scanner.captureTemplate(timeoutMs = LISTEN_SLICE_MS)) {
-                is FingerprintScanner.CaptureResult.Success -> {
-                    val enrolled = currentMembers.filter { it.fingerprintTemplate != null }
-                    var matched: Member? = null
-                    for (m in enrolled) {
-                        if (scanner.match(m.fingerprintTemplate!!, capture.template)) {
-                            matched = m
-                            break
-                        }
-                    }
-                    if (matched != null) {
-                        val expired = statusOf(matched.expiryMillis) == MemberStatus.EXPIRED
-                        matchedMember.value = matched
-                        phase.value = if (expired) KioskPhase.MEMBER_EXPIRED else KioskPhase.MEMBER_ACTIVE
-                        KioskSound.playSuccess()
-                        delay(MATCHED_DISPLAY_MS)
-                    } else {
-                        phase.value = KioskPhase.NOT_RECOGNIZED
-                        KioskSound.playError()
-                        delay(NOT_RECOGNIZED_DISPLAY_MS)
-                    }
-                    phase.value = KioskPhase.IDLE
-                    matchedMember.value = null
-                    currentOnResolved()
-                }
-                FingerprintScanner.CaptureResult.Timeout -> {
-                    // No finger placed during this slice — keep listening silently.
-                }
-                is FingerprintScanner.CaptureResult.Error -> {
-                    // Likely the device was unplugged mid-loop; drop the handle and retry opening.
-                    deviceOpen = false
-                    delay(1000)
-                }
-            }
+            delay(SERVICE_RETRY_MS)
         }
     }
 
-    return remember { derivedStateOf { phase.value to matchedMember.value } }
+    return remember {
+        derivedStateOf {
+            val e = event
+            when {
+                e == null -> KioskPhase.IDLE to null
+                !e.recognized -> KioskPhase.NOT_RECOGNIZED to null
+                e.expired -> KioskPhase.MEMBER_EXPIRED to currentMembers.find { it.id == e.matchedMemberId }
+                else -> KioskPhase.MEMBER_ACTIVE to currentMembers.find { it.id == e.matchedMemberId }
+            }
+        }
+    }
 }
 
 /**

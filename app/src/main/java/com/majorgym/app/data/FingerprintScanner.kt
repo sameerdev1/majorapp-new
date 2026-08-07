@@ -8,7 +8,7 @@ import android.content.IntentFilter
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
 import android.os.Build
-import androidx.activity.ComponentActivity
+
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -28,8 +28,11 @@ import SecuGen.FDxSDKPro.SGImpressionType
  * USB fingerprint scanner (Hamster Pro/Air/IV/Plus series) plugged into the
  * front-desk device via USB-OTG.
  *
- * Usage from a screen:
- *   val scanner = remember { FingerprintScanner(activity) }
+ * Takes a plain [Context] rather than an Activity, so either an Activity (e.g.
+ * during enrollment) or a Service (the kiosk background listener) can own it.
+ *
+ * Usage:
+ *   val scanner = remember { FingerprintScanner(context) }
  *   DisposableEffect(Unit) { onDispose { scanner.close() } }
  *   scanner.open()                 // finds device, requests USB permission if needed
  *   scanner.captureTemplate()      // one finger placement -> ISO 19794-2 template bytes
@@ -37,7 +40,7 @@ import SecuGen.FDxSDKPro.SGImpressionType
  *
  * Only one [FingerprintScanner] should have the device open at a time.
  */
-class FingerprintScanner(private val activity: ComponentActivity) {
+class FingerprintScanner(private val appContext: Context) {
 
     sealed class OpenResult {
         data object Success : OpenResult()
@@ -85,7 +88,7 @@ class FingerprintScanner(private val activity: ComponentActivity) {
      */
     suspend fun open(): OpenResult = withContext(Dispatchers.IO) {
         val lib = runCatching {
-            JSGFPLib(activity, activity.getSystemService(Context.USB_SERVICE) as UsbManager)
+            JSGFPLib(appContext, appContext.getSystemService(Context.USB_SERVICE) as UsbManager)
         }.getOrNull() ?: return@withContext OpenResult.DeviceNotFound
         sgfplib = lib
 
@@ -127,16 +130,16 @@ class FingerprintScanner(private val activity: ComponentActivity) {
             if (!receiverRegistered) {
                 val filter = IntentFilter(ACTION_USB_PERMISSION)
                 if (Build.VERSION.SDK_INT >= 33) {
-                    activity.registerReceiver(usbReceiver, filter, Context.RECEIVER_EXPORTED)
+                    appContext.registerReceiver(usbReceiver, filter, Context.RECEIVER_EXPORTED)
                 } else {
-                    activity.registerReceiver(usbReceiver, filter)
+                    appContext.registerReceiver(usbReceiver, filter)
                 }
                 receiverRegistered = true
             }
             pendingPermission = { granted -> if (cont.isActive) cont.resume(granted) }
             val flags = if (Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_MUTABLE else 0
             val permissionIntent = PendingIntent.getBroadcast(
-                activity, 0, Intent(ACTION_USB_PERMISSION), flags
+                appContext, 0, Intent(ACTION_USB_PERMISSION), flags
             )
             usbManager.requestPermission(device, permissionIntent)
             cont.invokeOnCancellation { pendingPermission = null }
@@ -214,7 +217,7 @@ class FingerprintScanner(private val activity: ComponentActivity) {
         }
         sgfplib = null
         if (receiverRegistered) {
-            runCatching { activity.unregisterReceiver(usbReceiver) }
+            runCatching { appContext.unregisterReceiver(usbReceiver) }
             receiverRegistered = false
         }
     }

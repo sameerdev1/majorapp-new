@@ -1,14 +1,19 @@
 package com.majorgym.app
 
+import android.Manifest
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -19,6 +24,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
+import androidx.core.content.ContextCompat
 import com.majorgym.app.ui.*
 
 class MainActivity : ComponentActivity() {
@@ -32,20 +38,35 @@ class MainActivity : ComponentActivity() {
                 var screen by remember { mutableStateOf<Screen>(Screen.Dashboard) }
                 val members by vm.members.collectAsState()
 
+                // Android 13+ requires this permission for the kiosk service's
+                // notification to actually display. Harmless to request even if the
+                // scanner turns out not to be connected yet — asked once, like any
+                // other runtime permission.
+                val notifPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
+                LaunchedEffect(Unit) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                        ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.POST_NOTIFICATIONS)
+                        != android.content.pm.PackageManager.PERMISSION_GRANTED
+                    ) {
+                        notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    }
+                }
+
                 if (showSplash) {
                     SplashScreen(onFinished = { showSplash = false })
                 } else {
-                // Kiosk mode: connects to the USB fingerprint scanner as soon as the
-                // app is past the splash screen, and keeps listening continuously for
-                // the rest of the time the app is open — no button press required.
+                // Kiosk mode: as soon as the app is past the splash screen, this asks
+                // the background FingerprintKioskService to start listening — but only
+                // once a scanner is actually detected (service handles that check), and
+                // only for as long as the app process is alive (Home button doesn't stop
+                // it; swiping the app out of Recent Apps does — see the service for why).
                 // Paused only while EnrollFingerprint has its own exclusive scanner
                 // session open (the USB device can only be held by one connection).
                 val kioskPaused = screen is Screen.EnrollFingerprint
-                val kioskState by rememberKioskState(
-                    activity = this@MainActivity,
+                val kioskState by rememberKioskCoordinator(
+                    context = this@MainActivity,
                     members = members,
-                    paused = kioskPaused,
-                    onResolved = { screen = Screen.Dashboard }
+                    paused = kioskPaused
                 )
                 // Surface is transparent so the background image behind it shows through
                 // on every screen; a dark scrim keeps text/cards readable over the photo.
@@ -93,6 +114,10 @@ class MainActivity : ComponentActivity() {
                         BottomNav(screen, modifier = Modifier.align(Alignment.BottomCenter)) { screen = it }
 
                         // Drawn last so it sits above the dashboard/bottom nav/every screen.
+                        // Unchanged UI — same KioskResultOverlay as before; it now just
+                        // reflects results published by the background service instead of
+                        // an Activity-owned scan loop, so it works the same whether this
+                        // screen was already visible or was just brought to the front.
                         KioskResultOverlay(kioskState.first, kioskState.second)
                     }
                 }
