@@ -42,6 +42,11 @@ object BackupManager {
             if (m.fingerprintTemplate != null) {
                 o.put("fingerprintTemplateBase64", Base64.encodeToString(m.fingerprintTemplate, Base64.NO_WRAP))
             }
+            // Feature 4 safeguard state — carried through so a synced/restored
+            // device doesn't lose track of an in-progress pending deletion (or,
+            // worst case if it did, the member simply gets re-flagged fresh on
+            // the next daily check — never an unsafe outcome either way).
+            if (m.pendingDeletionMillis != null) o.put("pendingDeletionMillis", m.pendingDeletionMillis)
             arr.put(o)
         }
         return JSONObject().apply {
@@ -94,7 +99,8 @@ object BackupManager {
                     idProof = o.optString("idProof", ""),
                     idProofPhotoPath = idProofPhotoPath,
                     fingerprintTemplate = o.optString("fingerprintTemplateBase64", "")
-                        .takeIf { it.isNotBlank() }?.let { Base64.decode(it, Base64.NO_WRAP) }
+                        .takeIf { it.isNotBlank() }?.let { Base64.decode(it, Base64.NO_WRAP) },
+                    pendingDeletionMillis = if (o.has("pendingDeletionMillis")) o.optLong("pendingDeletionMillis") else null
                 )
             )
         }

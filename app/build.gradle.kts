@@ -55,6 +55,10 @@ dependencies {
     // service (decides whether to just update the on-screen overlay directly, or
     // post a full-screen notification to bring the app forward first).
     implementation("androidx.lifecycle:lifecycle-process:2.8.2")
+    // Schedules the daily long-expired-account cleanup check (Feature 4). This is
+    // the standard, OS-recommended way to run reliable periodic background work —
+    // survives app restarts/reboots without needing a custom alarm/scheduler.
+    implementation("androidx.work:work-runtime-ktx:2.9.0")
 
     implementation(platform("androidx.compose:compose-bom:2024.06.00"))
     implementation("androidx.compose.ui:ui")

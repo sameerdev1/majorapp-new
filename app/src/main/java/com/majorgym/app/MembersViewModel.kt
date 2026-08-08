@@ -26,7 +26,7 @@ class MembersViewModel(app: Application) : AndroidViewModel(app) {
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     fun save(member: Member) = viewModelScope.launch { repo.save(member) }
-    fun delete(member: Member) = viewModelScope.launch { repo.delete(member) }
+    fun delete(member: Member) = viewModelScope.launch { repo.deleteWithFiles(member) }
 
     /** Stores/replaces a member's fingerprint template captured via [com.majorgym.app.data.FingerprintScanner]. */
     fun saveFingerprintTemplate(member: Member, template: ByteArray) = viewModelScope.launch {

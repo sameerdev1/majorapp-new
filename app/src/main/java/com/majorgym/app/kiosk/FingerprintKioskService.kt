@@ -63,6 +63,18 @@ class FingerprintKioskService : Service() {
     private var loopJob: Job? = null
     private var scanner: FingerprintScanner? = null
 
+    /**
+     * Enrolled members (with a fingerprint template), refreshed reactively from
+     * Room via [runLoop]'s cache collector instead of being re-queried from the
+     * database on every single scan. Kept pre-sorted by most-recently-seen
+     * first, so a genuine member usually matches within the first few
+     * comparisons instead of the app working through the whole roster —
+     * Feature 1 of the performance pass. @Volatile because it's written from
+     * the Flow-collector coroutine and read from the scan loop, which may run
+     * on different threads within the same IO dispatcher pool.
+     */
+    @Volatile private var enrolledCache: List<Member> = emptyList()
+
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
@@ -101,15 +113,23 @@ class FingerprintKioskService : Service() {
             return
         }
 
+        // Feature 1: keep the enrolled-members list in memory, updated reactively
+        // whenever it changes in the database, instead of querying Room fresh on
+        // every single scan attempt.
+        val cacheJob = launch {
+            runCatching {
+                AppDatabase.get(applicationContext).memberDao().getAll().collect { list ->
+                    enrolledCache = list.filter { it.fingerprintTemplate != null }
+                        .sortedByDescending { it.lastAttendanceMillis ?: 0L }
+                }
+            }
+        }
+
         while (isActive) {
             when (val capture = fp.captureTemplate(timeoutMs = LISTEN_SLICE_MS)) {
                 is FingerprintScanner.CaptureResult.Success -> {
-                    val enrolled = runCatching {
-                        AppDatabase.get(applicationContext).memberDao().getAllOnce()
-                    }.getOrDefault(emptyList()).filter { it.fingerprintTemplate != null }
-
                     var matched: Member? = null
-                    for (m in enrolled) {
+                    for (m in enrolledCache) {
                         if (fp.match(m.fingerprintTemplate!!, capture.template)) {
                             matched = m
                             break
@@ -141,6 +161,7 @@ class FingerprintKioskService : Service() {
             }
         }
 
+        cacheJob.cancel()
         fp.close()
         scanner = null
         stopForegroundCompat()

@@ -21,18 +21,62 @@ class Repository(private val context: Context) {
     suspend fun isPhoneTaken(phone: String, excludingId: String = ""): Boolean =
         dao.countByPhone(phone, excludingId) > 0
     suspend fun delete(member: Member) = dao.delete(member)
+
+    /**
+     * Deletes a member and everything tied to them: their database row, their
+     * profile photo file, and their ID proof photo file. Fingerprint templates
+     * live inside the database row itself (a BLOB column, not a separate file),
+     * so deleting the row already takes care of that.
+     *
+     * Used by both the manual Delete action and [MembershipCleanupWorker] —
+     * previously, deleting a member only removed the database row and silently
+     * left orphaned photo files behind forever; this replaces that everywhere.
+     */
+    suspend fun deleteWithFiles(member: Member) {
+        deletePhoto(member.id)
+        deleteIdProofPhoto(member.id)
+        dao.delete(member)
+    }
+
+    /** Removes a member's profile photo file, if any (safe no-op if there isn't one). */
+    fun deletePhoto(memberId: String) {
+        val f = File(File(context.filesDir, "photos"), "$memberId.jpg")
+        if (f.exists()) f.delete()
+    }
+
     suspend fun replaceAll(members: List<Member>) {
         dao.clearAll()
         dao.insertAll(members)
     }
 
-    /** Copies the picked photo into permanent internal app storage and returns its path. */
+    /**
+     * Copies the picked photo into permanent internal app storage — downscaled
+     * and JPEG-compressed the same way [saveIdProofPhoto] already was (Feature 2
+     * of the performance pass). Camera/gallery photos can be several MB each
+     * uncompressed; this keeps per-member storage small without a visible
+     * quality drop in the app's circular avatars or full-screen photo viewer.
+     * Always compresses fresh from the freshly-picked [uri], never re-compresses
+     * an already-saved file, so repeated edits can't progressively degrade it.
+     * Returns "" if the image couldn't be decoded, instead of throwing.
+     */
     fun savePhoto(memberId: String, uri: Uri): String {
         val dir = File(context.filesDir, "photos").apply { mkdirs() }
         val dest = File(dir, "$memberId.jpg")
         context.contentResolver.openInputStream(uri)?.use { input ->
-            dest.outputStream().use { output -> input.copyTo(output) }
-        }
+            val original = android.graphics.BitmapFactory.decodeStream(input) ?: return ""
+            val maxDimension = 1600
+            val longSide = maxOf(original.width, original.height)
+            val scale = if (longSide > maxDimension) maxDimension.toFloat() / longSide else 1f
+            val bitmap = if (scale < 1f) {
+                android.graphics.Bitmap.createScaledBitmap(
+                    original, (original.width * scale).toInt(), (original.height * scale).toInt(), true
+                )
+            } else original
+            dest.outputStream().use { output ->
+                bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 85, output)
+            }
+            if (bitmap !== original) original.recycle()
+        } ?: return ""
         return dest.absolutePath
     }
 

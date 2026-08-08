@@ -26,8 +26,14 @@ data class Member(
     val passwordHash: String = "",
     val createdAtMillis: Long = System.currentTimeMillis(),
     val lastAttendanceMillis: Long? = null,
-    /** Members expired 180+ days are archived (spec section 8) rather than deleted.
-     *  Archived members are hidden from the default list but remain searchable/restorable. */
+    /** Members expired 180+ days used to be described here as "archived, not
+     *  deleted" but that was never actually implemented anywhere — this field
+     *  is repurposed as the auto-delete safeguard instead (see
+     *  MembershipCleanupWorker): true only in the brief window between a
+     *  member first becoming eligible for deletion and the cleanup job
+     *  confirming it a second time ~a day later before actually deleting them.
+     *  Lets the UI (if ever needed) flag "pending removal" without hiding the
+     *  member outright. */
     val archived: Boolean = false,
     /** Unique, single-use-window token behind the member's QR (add-on: time-limited
      *  membership QR). Regenerated on registration, on every renewal, and whenever the
@@ -49,5 +55,16 @@ data class Member(
      *  (a few hundred byte) mathematical template, not a fingerprint image —
      *  the raw scan image is never stored. Used for 1:1 verification at
      *  check-in against the member the front-desk staff has already selected. */
-    val fingerprintTemplate: ByteArray? = null
+    val fingerprintTemplate: ByteArray? = null,
+    /**
+     * Epoch millis of when this member first became eligible for automatic
+     * deletion (expired 4+ months, never renewed since — see
+     * MembershipCleanupWorker). Null means "not currently pending." Renewing
+     * clears this automatically, since renewal moves [expiryMillis] into the
+     * future and the member stops being eligible. This — combined with
+     * [archived] — is the safeguard against a one-off clock glitch or sync
+     * hiccup causing an instant, irreversible deletion: a member has to stay
+     * eligible across two separate daily checks before they're actually removed.
+     */
+    val pendingDeletionMillis: Long? = null
 )
