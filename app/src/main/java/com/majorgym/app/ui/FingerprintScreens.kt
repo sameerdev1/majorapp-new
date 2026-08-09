@@ -43,7 +43,9 @@ private fun statusText(status: ScanStatus, detail: String): String = when (statu
 
 /**
  * Enroll (or re-enroll) [member]'s fingerprint on a connected SecuGen USB
- * scanner.
+ * scanner. Two consecutive good scans of the same finger are required and
+ * matched against each other before saving, so a smudged single read never
+ * silently becomes the stored template.
  */
 @Composable
 fun EnrollFingerprintScreen(member: Member, vm: MembersViewModel, returnTo: Screen, onNavigate: (Screen) -> Unit) {
@@ -57,10 +59,18 @@ fun EnrollFingerprintScreen(member: Member, vm: MembersViewModel, returnTo: Scre
 
     DisposableEffect(Unit) {
         onDispose {
+            // scanner.close() is already fully defensive (no-ops safely when no
+            // device was ever found/opened), but this belt-and-braces catch makes
+            // sure nothing thrown here can ever take the whole screen transition
+            // down with it.
             runCatching { scanner.close() }
         }
     }
 
+    // Handles both the on-screen ← arrow (below) and the hardware/gesture back
+    // button. Without this, system back has no "previous screen" to return to on
+    // this manual-navigation app and falls through to closing the Activity — this
+    // makes it behave identically to tapping ← Back.
     BackHandler(enabled = true) { onNavigate(returnTo) }
 
     fun runScan() {
@@ -87,6 +97,7 @@ fun EnrollFingerprintScreen(member: Member, vm: MembersViewModel, returnTo: Scre
                     status = ScanStatus.CAPTURED
                     val prior = firstScan
                     if (prior == null) {
+                        // First of the two required scans.
                         firstScan = capture.template
                         status = ScanStatus.IDLE
                         detail = "First scan captured. Scan the same finger again to confirm."

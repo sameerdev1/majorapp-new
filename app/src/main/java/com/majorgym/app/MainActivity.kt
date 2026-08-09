@@ -112,6 +112,7 @@ class MainActivity : ComponentActivity() {
                             }
                             Screen.Backup -> BackupScreen(vm)
                             Screen.Sync -> SyncScreen(vm)
+                            Screen.Revenue -> RevenueScreen(members) { screen = it }
                             is Screen.EnrollFingerprint -> {
                                 val m = members.find { it.id == s.id }
                                 if (m != null) EnrollFingerprintScreen(m, vm, s.returnTo) { screen = it }

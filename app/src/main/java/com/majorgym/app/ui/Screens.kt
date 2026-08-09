@@ -271,6 +271,7 @@ fun DashboardScreen(members: List<Member>, onNavigate: (Screen) -> Unit) {
                     .clip(RoundedCornerShape(16.dp))
                     .background(GymColors.SurfaceCard)
                     .border(1.dp, GymColors.Border, RoundedCornerShape(16.dp))
+                    .clickable { onNavigate(Screen.Revenue) }
                     .padding(16.dp)
             ) {
                 Text("TOTAL REVENUE", color = GymColors.Gold, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)

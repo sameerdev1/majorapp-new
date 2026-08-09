@@ -25,6 +25,15 @@ import com.majorgym.app.data.QrUtils
 import com.majorgym.app.data.WhatsAppShare
 import com.majorgym.app.data.formatDateTime
 
+/**
+ * Shown exactly once, right after a new member is saved (spec sections 2-3):
+ * displays the member's QR (ID only, no personal data) and offers to share
+ * a welcome message with their temporary passkey over WhatsApp.
+ *
+ * [passkey] is the plaintext value generated moments ago on the registration
+ * screen. It is never re-derivable after this screen closes — only its hash
+ * lives in the database from here on.
+ */
 @Composable
 fun RegistrationSuccessScreen(member: Member, passkey: String, onNavigate: (Screen) -> Unit) {
     val context = LocalContext.current
