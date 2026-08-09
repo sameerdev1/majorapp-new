@@ -256,12 +256,12 @@ fun DashboardScreen(members: List<Member>, onNavigate: (Screen) -> Unit) {
         }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(bottom = 10.dp)) {
-                StatCard("Total Members", members.size.toString(), Modifier.weight(1f))
-                StatCard("Active", active.toString(), Modifier.weight(1f))
+                StatCard("Total Members", members.size.toString(), Modifier.weight(1f)) { onNavigate(Screen.TotalMembers) }
+                StatCard("Active", active.toString(), Modifier.weight(1f)) { onNavigate(Screen.ActiveMembers) }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(bottom = 14.dp)) {
-                StatCard("Expiring Soon", expiring.toString(), Modifier.weight(1f))
-                StatCard("Expired", expired.toString(), Modifier.weight(1f))
+                StatCard("Expiring Soon", expiring.toString(), Modifier.weight(1f)) { onNavigate(Screen.ExpiringMembers) }
+                StatCard("Expired", expired.toString(), Modifier.weight(1f)) { onNavigate(Screen.ExpiredMembers) }
             }
         }
         item {
@@ -380,12 +380,13 @@ fun GymAttendanceQrCard() {
 }
 
 @Composable
-fun StatCard(label: String, value: String, modifier: Modifier = Modifier) {
+fun StatCard(label: String, value: String, modifier: Modifier = Modifier, onClick: (() -> Unit)? = null) {
     Column(
         modifier = modifier
             .clip(RoundedCornerShape(16.dp))
             .background(GymColors.SurfaceCard)
             .border(1.dp, GymColors.Border, RoundedCornerShape(16.dp))
+            .let { if (onClick != null) it.clickable { onClick() } else it }
             .padding(16.dp)
     ) {
         Text(label.uppercase(), color = GymColors.TextFaint, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
@@ -419,44 +420,56 @@ fun MembersScreen(members: List<Member>, onNavigate: (Screen) -> Unit) {
         Spacer(Modifier.height(14.dp))
         LazyColumn(contentPadding = PaddingValues(bottom = 90.dp)) {
             items(filtered) { m ->
-                val status = statusOf(m.expiryMillis)
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 10.dp)
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(GymColors.SurfaceCard)
-                        .border(1.dp, GymColors.Border, RoundedCornerShape(16.dp))
-                        .padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(
-                        modifier = Modifier.weight(1f).clickable { onNavigate(Screen.Profile(m.id)) },
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        StatusRing(m.photoPath, m.name, status, 48.dp)
-                        Spacer(Modifier.width(12.dp))
-                        Column {
-                            Text(m.name, color = GymColors.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                            Text("${m.phone} \u00B7 ${m.plan}", color = GymColors.TextMuted, fontSize = 12.sp)
-                            Text("Expires ${formatDate(m.expiryMillis)}", color = GymColors.TextFaint, fontSize = 11.sp)
-                        }
-                    }
-                    Column(horizontalAlignment = Alignment.End) {
-                        StatusBadge(status)
-                        Spacer(Modifier.height(8.dp))
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(20.dp))
-                                .background(GymColors.Accent.copy(alpha = 0.15f))
-                                .border(1.dp, GymColors.Accent.copy(alpha = 0.4f), RoundedCornerShape(20.dp))
-                                .clickable { onNavigate(Screen.Renew(m.id)) }
-                                .padding(horizontal = 12.dp, vertical = 5.dp)
-                        ) {
-                            Text("Renew", color = GymColors.Accent, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                        }
-                    }
-                }
+                MemberRow(m, onNavigate)
+            }
+        }
+    }
+}
+
+/**
+ * A single member row: status ring, name, phone/plan, expiry date, status
+ * badge, and a Renew shortcut — tapping the row opens the member's profile.
+ * Extracted from [MembersScreen] so the Dashboard's four filtered list pages
+ * (Total/Active/Expiring/Expired) can reuse the exact same member-card UI
+ * and the exact same profile/renew navigation, instead of a second copy.
+ */
+@Composable
+fun MemberRow(m: Member, onNavigate: (Screen) -> Unit) {
+    val status = statusOf(m.expiryMillis)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = 10.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(GymColors.SurfaceCard)
+            .border(1.dp, GymColors.Border, RoundedCornerShape(16.dp))
+            .padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Row(
+            modifier = Modifier.weight(1f).clickable { onNavigate(Screen.Profile(m.id)) },
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            StatusRing(m.photoPath, m.name, status, 48.dp)
+            Spacer(Modifier.width(12.dp))
+            Column {
+                Text(m.name, color = GymColors.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                Text("${m.phone} \u00B7 ${m.plan}", color = GymColors.TextMuted, fontSize = 12.sp)
+                Text("Expires ${formatDate(m.expiryMillis)}", color = GymColors.TextFaint, fontSize = 11.sp)
+            }
+        }
+        Column(horizontalAlignment = Alignment.End) {
+            StatusBadge(status)
+            Spacer(Modifier.height(8.dp))
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(GymColors.Accent.copy(alpha = 0.15f))
+                    .border(1.dp, GymColors.Accent.copy(alpha = 0.4f), RoundedCornerShape(20.dp))
+                    .clickable { onNavigate(Screen.Renew(m.id)) }
+                    .padding(horizontal = 12.dp, vertical = 5.dp)
+            ) {
+                Text("Renew", color = GymColors.Accent, fontSize = 11.sp, fontWeight = FontWeight.Bold)
             }
         }
     }

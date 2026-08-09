@@ -23,6 +23,15 @@ sealed class Screen {
      *  card. Reads the same members/history data the Dashboard total already
      *  uses — no separate data store, so it can never drift from that total. */
     data object Revenue : Screen()
+    /** Reached by tapping the Dashboard's four stat cards. Each just filters
+     *  the same [com.majorgym.app.data.Member] list / statusOf logic the
+     *  Dashboard already uses to compute those same four numbers — so a tap
+     *  always shows exactly the members counted in that card, with zero risk
+     *  of the list and the count ever disagreeing. */
+    data object TotalMembers : Screen()
+    data object ActiveMembers : Screen()
+    data object ExpiringMembers : Screen()
+    data object ExpiredMembers : Screen()
     /** Enroll/re-enroll a member's fingerprint on the connected SecuGen USB
      *  scanner. Reachable from Profile. [returnTo] is where "Done"/"Back" goes —
      *  Registered right after sign-up, or Profile when re-enrolling later. */

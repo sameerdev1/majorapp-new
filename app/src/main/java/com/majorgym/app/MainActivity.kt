@@ -113,6 +113,24 @@ class MainActivity : ComponentActivity() {
                             Screen.Backup -> BackupScreen(vm)
                             Screen.Sync -> SyncScreen(vm)
                             Screen.Revenue -> RevenueScreen(members) { screen = it }
+                            Screen.TotalMembers -> FilteredMembersScreen(
+                                "Total Members", members, showSearch = true, emptyText = "No members yet."
+                            ) { screen = it }
+                            Screen.ActiveMembers -> FilteredMembersScreen(
+                                "Active Members",
+                                members.filter { com.majorgym.app.data.statusOf(it.expiryMillis) == com.majorgym.app.data.MemberStatus.ACTIVE },
+                                showSearch = false, emptyText = "No active members."
+                            ) { screen = it }
+                            Screen.ExpiringMembers -> FilteredMembersScreen(
+                                "Expiring Soon",
+                                members.filter { com.majorgym.app.data.statusOf(it.expiryMillis) == com.majorgym.app.data.MemberStatus.EXPIRING },
+                                showSearch = false, emptyText = "No members expiring soon."
+                            ) { screen = it }
+                            Screen.ExpiredMembers -> FilteredMembersScreen(
+                                "Expired Members",
+                                members.filter { com.majorgym.app.data.statusOf(it.expiryMillis) == com.majorgym.app.data.MemberStatus.EXPIRED },
+                                showSearch = false, emptyText = "No expired members."
+                            ) { screen = it }
                             is Screen.EnrollFingerprint -> {
                                 val m = members.find { it.id == s.id }
                                 if (m != null) EnrollFingerprintScreen(m, vm, s.returnTo) { screen = it }
