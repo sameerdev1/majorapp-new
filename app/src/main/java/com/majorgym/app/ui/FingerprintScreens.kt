@@ -42,6 +42,35 @@ private fun statusText(status: ScanStatus, detail: String): String = when (statu
 }
 
 /**
+ * Morning/Evening picker for the enrollment screen (spec: "the owner selects
+ * the member's group before/during fingerprint enrollment"). Same pill-toggle
+ * visual language as [PlanGrid] in Screens.kt, so it reads as part of the
+ * existing design system rather than a new UI pattern.
+ */
+@Composable
+private fun FingerprintGroupSelector(selected: FingerprintGroup, enabled: Boolean, onSelect: (FingerprintGroup) -> Unit) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text("FINGERPRINT GROUP", color = GymColors.TextFaint, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(FingerprintGroup.MORNING to "Morning", FingerprintGroup.EVENING to "Evening").forEach { (group, label) ->
+                val active = group == selected
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(if (active) GymColors.Accent else GymColors.SurfaceCard)
+                        .border(1.dp, if (active) GymColors.Accent else GymColors.Border, RoundedCornerShape(10.dp))
+                        .clickable(enabled = enabled) { onSelect(group) }
+                        .padding(horizontal = 24.dp, vertical = 10.dp)
+                ) {
+                    Text(label, color = if (active) Color.Black else GymColors.TextMuted, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+}
+
+/**
  * Enroll (or re-enroll) [member]'s fingerprint on a connected SecuGen USB
  * scanner. Two consecutive good scans of the same finger are required and
  * matched against each other before saving, so a smudged single read never
@@ -56,6 +85,16 @@ fun EnrollFingerprintScreen(member: Member, vm: MembersViewModel, returnTo: Scre
     var detail by remember { mutableStateOf("") }
     var firstScan by remember { mutableStateOf<ByteArray?>(null) }
     var done by remember { mutableStateOf(false) }
+    // Defaults to the member's existing group if re-enrolling, otherwise to
+    // whichever group is "current" right now — purely a convenience default,
+    // the owner can still pick either one before scanning (spec section 1).
+    var selectedGroup by remember {
+        mutableStateOf(
+            FingerprintGroup.fromStorageValue(member.fingerprintGroup).let {
+                if (it == FingerprintGroup.UNASSIGNED) FingerprintGroupConfig.currentGroup() else it
+            }
+        )
+    }
 
     DisposableEffect(Unit) {
         onDispose {
@@ -104,7 +143,7 @@ fun EnrollFingerprintScreen(member: Member, vm: MembersViewModel, returnTo: Scre
                     } else {
                         val matched = scanner.match(prior, capture.template)
                         if (matched) {
-                            vm.saveFingerprintTemplate(member, capture.template)
+                            vm.saveFingerprintTemplate(member, capture.template, selectedGroup)
                             status = ScanStatus.MATCHED
                             done = true
                         } else {
@@ -170,7 +209,16 @@ fun EnrollFingerprintScreen(member: Member, vm: MembersViewModel, returnTo: Scre
                 Text(detail, color = GymColors.TextMuted, fontSize = 13.sp)
             }
             if (!done) {
-                Spacer(Modifier.height(28.dp))
+                Spacer(Modifier.height(24.dp))
+                FingerprintGroupSelector(
+                    selected = selectedGroup,
+                    // Only relevant before the pair of confirmation scans starts —
+                    // switching mid-confirmation would be confusing, so lock it in
+                    // once the first scan is captured.
+                    enabled = firstScan == null && status != ScanStatus.OPENING && status != ScanStatus.WAITING,
+                    onSelect = { selectedGroup = it }
+                )
+                Spacer(Modifier.height(4.dp))
                 Button(
                     onClick = { runScan() },
                     enabled = status != ScanStatus.OPENING && status != ScanStatus.WAITING,

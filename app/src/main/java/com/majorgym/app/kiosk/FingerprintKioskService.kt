@@ -14,8 +14,11 @@ import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ProcessLifecycleOwner
+import android.util.Log
 import com.majorgym.app.MainActivity
 import com.majorgym.app.data.AppDatabase
+import com.majorgym.app.data.FingerprintGroup
+import com.majorgym.app.data.FingerprintGroupConfig
 import com.majorgym.app.data.FingerprintScanner
 import com.majorgym.app.data.Member
 import com.majorgym.app.data.MemberStatus
@@ -29,6 +32,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
+private const val TAG = "FingerprintKiosk"
 private const val MATCHED_DISPLAY_MS = 3000L
 private const val NOT_RECOGNIZED_DISPLAY_MS = 1500L
 private const val LISTEN_SLICE_MS = 4000
@@ -72,8 +76,18 @@ class FingerprintKioskService : Service() {
      * Feature 1 of the performance pass. @Volatile because it's written from
      * the Flow-collector coroutine and read from the scan loop, which may run
      * on different threads within the same IO dispatcher pool.
+     *
+     * Morning/Evening grouping (a later add-on) splits this same enrolled set
+     * into two candidate lists ahead of time — [morningCache] and
+     * [eveningCache] — so the scan loop only ever calls the expensive
+     * [FingerprintScanner.match] SDK operation against the relevant subset
+     * first, not the full roster. Members with no group set yet (enrolled
+     * before this feature existed) are included in *both* lists so they keep
+     * matching exactly as before — see [FingerprintGroup.UNASSIGNED].
      */
     @Volatile private var enrolledCache: List<Member> = emptyList()
+    @Volatile private var morningCache: List<Member> = emptyList()
+    @Volatile private var eveningCache: List<Member> = emptyList()
 
     override fun onCreate() {
         super.onCreate()
@@ -119,8 +133,21 @@ class FingerprintKioskService : Service() {
         val cacheJob = launch {
             runCatching {
                 AppDatabase.get(applicationContext).memberDao().getAll().collect { list ->
-                    enrolledCache = list.filter { it.fingerprintTemplate != null }
+                    val enrolled = list.filter { it.fingerprintTemplate != null }
                         .sortedByDescending { it.lastAttendanceMillis ?: 0L }
+                    enrolledCache = enrolled
+                    // Fingerprint grouping (search-space optimization): pre-split the
+                    // already-sorted enrolled list into Morning/Evening candidate lists
+                    // once here, reactively, rather than filtering per-scan. Unassigned
+                    // (pre-feature) members land in both, so they're never excluded.
+                    morningCache = enrolled.filter {
+                        val g = FingerprintGroup.fromStorageValue(it.fingerprintGroup)
+                        g == FingerprintGroup.MORNING || g == FingerprintGroup.UNASSIGNED
+                    }
+                    eveningCache = enrolled.filter {
+                        val g = FingerprintGroup.fromStorageValue(it.fingerprintGroup)
+                        g == FingerprintGroup.EVENING || g == FingerprintGroup.UNASSIGNED
+                    }
                 }
             }
         }
@@ -128,8 +155,18 @@ class FingerprintKioskService : Service() {
         while (isActive) {
             when (val capture = fp.captureTemplate(timeoutMs = LISTEN_SLICE_MS)) {
                 is FingerprintScanner.CaptureResult.Success -> {
+                    val primaryGroup = FingerprintGroupConfig.currentGroup()
+                    val primaryList = if (primaryGroup == FingerprintGroup.MORNING) morningCache else eveningCache
+                    val fallbackGroup = FingerprintGroupConfig.other(primaryGroup)
+                    val fallbackList = if (primaryGroup == FingerprintGroup.MORNING) eveningCache else morningCache
+
+                    Log.d(TAG, "Fingerprint scan started")
+                    Log.d(TAG, "Current time: ${java.time.LocalTime.now()}")
+                    Log.d(TAG, "Primary group: $primaryGroup")
+                    Log.d(TAG, "Primary template count: ${primaryList.size}")
+
                     var matched: Member? = null
-                    for (m in enrolledCache) {
+                    for (m in primaryList) {
                         if (fp.match(m.fingerprintTemplate!!, capture.template)) {
                             matched = m
                             break
@@ -137,9 +174,34 @@ class FingerprintKioskService : Service() {
                     }
 
                     if (matched != null) {
+                        Log.d(TAG, "Primary search: MATCH")
+                    } else {
+                        Log.d(TAG, "Primary search: NO MATCH")
+                        // Fallback: only searched when the primary group misses, and
+                        // never simultaneously with it (spec section 5).
+                        Log.d(TAG, "Fallback group: $fallbackGroup")
+                        for (m in fallbackList) {
+                            if (fp.match(m.fingerprintTemplate!!, capture.template)) {
+                                matched = m
+                                break
+                            }
+                        }
+                        Log.d(TAG, if (matched != null) "Fallback search: MATCH" else "Fallback search: NO MATCH")
+                    }
+
+                    if (matched != null) {
+                        val audioStatus = membershipAudioStatusOf(matched.expiryMillis)
                         val expired = statusOf(matched.expiryMillis) == MemberStatus.EXPIRED
+                        Log.d(TAG, "Matched member: ${matched.name}")
+                        Log.d(TAG, "Membership status: $audioStatus")
+
                         KioskSound.playSuccess()
                         KioskBus.publish(KioskEvent(matched.id, recognized = true, expired = expired))
+                        // Membership-status audio: only ever reached on a genuine
+                        // successful match, using the exact same matched Member used
+                        // for the overlay display above — never a separate lookup
+                        // (spec section 16).
+                        MembershipAudioPlayer.play(applicationContext, audioStatus)
                         notifyIfBackgrounded()
                         delay(MATCHED_DISPLAY_MS)
                     } else {
@@ -178,6 +240,7 @@ class FingerprintKioskService : Service() {
         loopJob?.cancel()
         runCatching { scanner?.close() }
         scanner = null
+        MembershipAudioPlayer.stop()
         serviceScope.cancel()
         super.onDestroy()
     }
@@ -188,6 +251,7 @@ class FingerprintKioskService : Service() {
         loopJob?.cancel()
         runCatching { scanner?.close() }
         scanner = null
+        MembershipAudioPlayer.stop()
         KioskBus.publish(null)
         stopForegroundCompat()
         stopSelf()
