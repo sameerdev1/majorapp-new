@@ -66,11 +66,5 @@ data class Member(
      * hiccup causing an instant, irreversible deletion: a member has to stay
      * eligible across two separate daily checks before they're actually removed.
      */
-    val pendingDeletionMillis: Long? = null,
-    /** "morning" / "evening" / "" (unassigned — members enrolled before this
-     *  feature existed). See [FingerprintGroup] for the enum wrapper and
-     *  [FingerprintGroupConfig] for the time-of-day boundaries. Only meaningful
-     *  when [fingerprintTemplate] is non-null; purely a 1:N search-space
-     *  optimization for kiosk check-in, never affects 1:1 enrollment matching. */
-    val fingerprintGroup: String = ""
+    val pendingDeletionMillis: Long? = null
 )

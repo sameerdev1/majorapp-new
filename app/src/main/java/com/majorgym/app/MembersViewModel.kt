@@ -5,7 +5,6 @@ import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.majorgym.app.data.BackupManager
-import com.majorgym.app.data.FingerprintGroup
 import com.majorgym.app.data.Member
 import com.majorgym.app.data.PairedDevice
 import com.majorgym.app.data.PasskeyUtils
@@ -29,17 +28,9 @@ class MembersViewModel(app: Application) : AndroidViewModel(app) {
     fun save(member: Member) = viewModelScope.launch { repo.save(member) }
     fun delete(member: Member) = viewModelScope.launch { repo.deleteWithFiles(member) }
 
-    /** Stores/replaces a member's fingerprint template captured via [com.majorgym.app.data.FingerprintScanner],
-     *  along with the Morning/Evening group the owner picked on the enrollment screen (used only to shrink
-     *  the kiosk's 1:N search space — see [com.majorgym.app.kiosk.FingerprintKioskService]). */
-    fun saveFingerprintTemplate(member: Member, template: ByteArray, group: FingerprintGroup) = viewModelScope.launch {
-        repo.save(
-            member.copy(
-                fingerprintTemplate = template,
-                fingerprintGroup = group.toStorageValue(),
-                updatedAtMillis = System.currentTimeMillis()
-            )
-        )
+    /** Stores/replaces a member's fingerprint template captured via [com.majorgym.app.data.FingerprintScanner]. */
+    fun saveFingerprintTemplate(member: Member, template: ByteArray) = viewModelScope.launch {
+        repo.save(member.copy(fingerprintTemplate = template, updatedAtMillis = System.currentTimeMillis()))
     }
 
     fun clearFingerprintTemplate(member: Member) = viewModelScope.launch {
