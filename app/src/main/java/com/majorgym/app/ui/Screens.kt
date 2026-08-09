@@ -157,9 +157,9 @@ fun PlanGrid(selected: String, onSelect: (String) -> Unit) {
                     Box(
                         modifier = Modifier
                             .weight(1f)
-                            .clip(RoundedCornerShape(10.dp))
+                            .clip(RoundedCornerShape(8.dp))
                             .background(if (active) GymColors.Accent else GymColors.Surface2)
-                            .border(1.dp, if (active) GymColors.Accent else GymColors.Border, RoundedCornerShape(10.dp))
+                            .border(1.dp, if (active) GymColors.Accent else GymColors.Border, RoundedCornerShape(8.dp))
                             .clickable { onSelect(p) }
                             .padding(vertical = 10.dp),
                         contentAlignment = Alignment.Center
@@ -178,9 +178,9 @@ fun DatePickerField(date: LocalDate, onChange: (LocalDate) -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
+            .clip(RoundedCornerShape(8.dp))
             .background(GymColors.Surface2)
-            .border(1.dp, GymColors.Border, RoundedCornerShape(10.dp))
+            .border(1.dp, GymColors.Border, RoundedCornerShape(8.dp))
             .clickable {
                 android.app.DatePickerDialog(
                     context,
@@ -244,7 +244,7 @@ fun DashboardScreen(members: List<Member>, onNavigate: (Screen) -> Unit) {
         }
         item {
             Column(
-                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(GymColors.Surface).padding(16.dp)
+                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(GymColors.Surface).padding(16.dp)
             ) {
                 Text("TOTAL REVENUE", color = GymColors.Gold, fontSize = 11.sp, fontWeight = FontWeight.Medium)
                 Spacer(Modifier.height(6.dp))
@@ -263,7 +263,7 @@ fun DashboardScreen(members: List<Member>, onNavigate: (Screen) -> Unit) {
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(bottom = 8.dp)
-                        .clip(RoundedCornerShape(12.dp))
+                        .clip(RoundedCornerShape(16.dp))
                         .background(GymColors.Surface)
                         .clickable { onNavigate(Screen.Profile(m.id)) }
                         .padding(10.dp),
@@ -299,7 +299,7 @@ fun GymAttendanceQrCard() {
     val qrBitmap = remember { QrUtils.gymQrBitmap(QrUtils.GYM_ATTENDANCE_CODE) }
 
     Column(
-        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(GymColors.Surface).padding(16.dp),
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(GymColors.Surface).padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text("GYM ATTENDANCE QR", color = GymColors.Gold, fontSize = 11.sp, fontWeight = FontWeight.Medium, modifier = Modifier.align(Alignment.Start))
@@ -310,7 +310,7 @@ fun GymAttendanceQrCard() {
         Box(
             modifier = Modifier
                 .size(160.dp)
-                .clip(RoundedCornerShape(12.dp))
+                .clip(RoundedCornerShape(16.dp))
                 .background(Color.White)
                 .padding(10.dp)
                 .clickable { fullScreen = true },
@@ -330,7 +330,7 @@ fun GymAttendanceQrCard() {
     if (fullScreen) {
         Dialog(onDismissRequest = { fullScreen = false }) {
             Column(
-                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Color.White).padding(24.dp),
+                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(Color.White).padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Image(
@@ -383,7 +383,7 @@ fun MembersScreen(members: List<Member>, onNavigate: (Screen) -> Unit) {
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(bottom = 8.dp)
-                        .clip(RoundedCornerShape(14.dp))
+                        .clip(RoundedCornerShape(16.dp))
                         .background(GymColors.Surface)
                         .padding(10.dp),
                     verticalAlignment = Alignment.CenterVertically
@@ -577,7 +577,7 @@ fun AddEditMemberScreen(vm: MembersViewModel, existing: Member?, onNavigate: (Sc
                 Column {
                     AsyncImage(
                         model = idPhotoFile, contentDescription = null, contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxWidth().height(160.dp).clip(RoundedCornerShape(12.dp))
+                        modifier = Modifier.fillMaxWidth().height(160.dp).clip(RoundedCornerShape(16.dp))
                     )
                     Spacer(Modifier.height(8.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
@@ -594,9 +594,9 @@ fun AddEditMemberScreen(vm: MembersViewModel, existing: Member?, onNavigate: (Sc
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
+                        .clip(RoundedCornerShape(16.dp))
                         .background(GymColors.Surface2)
-                        .border(1.dp, GymColors.Border, RoundedCornerShape(12.dp))
+                        .border(1.dp, GymColors.Border, RoundedCornerShape(16.dp))
                         .clickable { showIdPhotoSourceSheet = true }
                         .padding(20.dp)
                 ) {
@@ -648,7 +648,7 @@ fun AddEditMemberScreen(vm: MembersViewModel, existing: Member?, onNavigate: (Sc
         }
 
         Row(
-            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(GymColors.Success.copy(alpha = 0.14f)).padding(12.dp),
+            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(GymColors.Success.copy(alpha = 0.14f)).padding(12.dp),
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Text("Auto-calculated expiry", color = GymColors.Success, fontSize = 12.sp)
@@ -835,7 +835,7 @@ fun ProfileScreen(member: Member, vm: MembersViewModel, onNavigate: (Screen) -> 
                     color = GymColors.TextFaint, fontSize = 11.sp
                 )
             }
-            Column(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(GymColors.Surface).padding(16.dp)) {
+            Column(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(GymColors.Surface).padding(16.dp)) {
                 ProfileRow(Icons.Filled.Phone, "Phone", member.phone)
                 ProfileRow(Icons.Filled.CalendarToday, "Joined", formatDate(member.joinedMillis))
                 if (lastRenewedMillis != null) {
@@ -858,7 +858,7 @@ fun ProfileScreen(member: Member, vm: MembersViewModel, onNavigate: (Screen) -> 
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(140.dp)
-                                .clip(RoundedCornerShape(12.dp))
+                                .clip(RoundedCornerShape(16.dp))
                                 .clickable { showIdPhoto = true }
                         )
                     } else {
@@ -898,7 +898,7 @@ fun ProfileScreen(member: Member, vm: MembersViewModel, onNavigate: (Screen) -> 
         }
         items(history) { h ->
             Row(
-                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp).clip(RoundedCornerShape(12.dp)).background(GymColors.Surface).padding(12.dp),
+                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp).clip(RoundedCornerShape(16.dp)).background(GymColors.Surface).padding(12.dp),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Column {
@@ -947,7 +947,7 @@ fun ProfileRow(icon: ImageVector, label: String, value: String, last: Boolean = 
 @Composable
 fun ActionButton(icon: ImageVector, label: String, color: Color, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Column(
-        modifier = modifier.clip(RoundedCornerShape(14.dp)).background(GymColors.Surface).clickable { onClick() }.padding(vertical = 14.dp),
+        modifier = modifier.clip(RoundedCornerShape(8.dp)).background(GymColors.Surface).clickable { onClick() }.padding(vertical = 14.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Icon(icon, null, tint = color, modifier = Modifier.size(18.dp))
@@ -990,7 +990,7 @@ fun RenewScreen(member: Member, vm: MembersViewModel, onNavigate: (Screen) -> Un
             )
         }
         Row(
-            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(GymColors.Success.copy(alpha = 0.14f)).padding(12.dp),
+            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(GymColors.Success.copy(alpha = 0.14f)).padding(12.dp),
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Text("New expiry date", color = GymColors.Success, fontSize = 12.sp)
@@ -1191,7 +1191,7 @@ fun BackupScreen(vm: MembersViewModel) {
 
                 if (latestBackup != null) {
                     val f = latestBackup!!
-                    Column(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(GymColors.Surface2).padding(10.dp)) {
+                    Column(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(GymColors.Surface2).padding(10.dp)) {
                         Text(f.name, color = GymColors.Text, fontSize = 11.sp)
                         Text(
                             "${formatBackupSize(f.length())} \u00B7 ${formatDate(f.lastModified())} \u00B7 ${formatTimeOfDay(f.lastModified())}",
