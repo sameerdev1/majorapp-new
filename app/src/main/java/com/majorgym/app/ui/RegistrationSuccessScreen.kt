@@ -52,7 +52,7 @@ fun RegistrationSuccessScreen(member: Member, passkey: String, onNavigate: (Scre
         Box(
             modifier = Modifier
                 .size(220.dp)
-                .clip(RoundedCornerShape(16.dp))
+                .clip(RoundedCornerShape(12.dp))
                 .background(androidx.compose.ui.graphics.Color.White)
                 .padding(16.dp),
             contentAlignment = Alignment.Center

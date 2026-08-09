@@ -144,7 +144,7 @@ fun SyncScreen(vm: MembersViewModel) {
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(bottom = 8.dp)
-                        .clip(RoundedCornerShape(16.dp))
+                        .clip(RoundedCornerShape(12.dp))
                         .background(GymColors.Surface)
                         .padding(12.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
