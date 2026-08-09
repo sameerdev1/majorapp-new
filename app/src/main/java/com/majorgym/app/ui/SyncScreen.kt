@@ -1,6 +1,7 @@
 package com.majorgym.app.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -33,7 +34,7 @@ fun SyncScreen(vm: MembersViewModel) {
             .padding(horizontal = 16.dp)
             .padding(top = 20.dp, bottom = 90.dp)
     ) {
-        Text("DEVICE SYNC", color = GymColors.Text, fontWeight = FontWeight.Bold, fontSize = 22.sp)
+        Text("DEVICE SYNC", color = GymColors.Text, fontWeight = FontWeight.ExtraBold, fontSize = 22.sp, letterSpacing = 0.5.sp)
         Spacer(Modifier.height(4.dp))
         Text(
             "Sync members between up to 3 authorized phones over the same Wi-Fi or hotspot. No internet, no cloud account needed.",
@@ -41,9 +42,13 @@ fun SyncScreen(vm: MembersViewModel) {
         )
         Spacer(Modifier.height(20.dp))
 
-        Card(colors = CardDefaults.cardColors(containerColor = GymColors.Surface), modifier = Modifier.fillMaxWidth()) {
+        Card(
+            colors = CardDefaults.cardColors(containerColor = GymColors.SurfaceCard),
+            shape = RoundedCornerShape(16.dp),
+            modifier = Modifier.fillMaxWidth().border(1.dp, GymColors.Border, RoundedCornerShape(16.dp))
+        ) {
             Column(Modifier.padding(16.dp)) {
-                Text("This Device", color = GymColors.Text, fontWeight = FontWeight.Medium)
+                Text("This Device", color = GymColors.Text, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(10.dp))
                 OutlinedTextField(
                     value = deviceName,
@@ -51,15 +56,20 @@ fun SyncScreen(vm: MembersViewModel) {
                     label = { Text("Device name", color = GymColors.TextFaint) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp),
                     colors = gymFieldColors()
                 )
             }
         }
         Spacer(Modifier.height(14.dp))
 
-        Card(colors = CardDefaults.cardColors(containerColor = GymColors.Surface), modifier = Modifier.fillMaxWidth()) {
+        Card(
+            colors = CardDefaults.cardColors(containerColor = GymColors.SurfaceCard),
+            shape = RoundedCornerShape(16.dp),
+            modifier = Modifier.fillMaxWidth().border(1.dp, GymColors.Border, RoundedCornerShape(16.dp))
+        ) {
             Column(Modifier.padding(16.dp)) {
-                Text("Sync Circle Code", color = GymColors.Text, fontWeight = FontWeight.Medium)
+                Text("Sync Circle Code", color = GymColors.Text, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(6.dp))
                 Text(
                     "Set this once on the first phone, then enter the exact same code on up to 2 other phones. Only devices sharing this code can join this gym's sync circle.",
@@ -72,6 +82,7 @@ fun SyncScreen(vm: MembersViewModel) {
                     label = { Text("Sync code", color = GymColors.TextFaint) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp),
                     colors = gymFieldColors()
                 )
                 Spacer(Modifier.height(10.dp))
@@ -81,14 +92,16 @@ fun SyncScreen(vm: MembersViewModel) {
                             codeInput = (1..6).map { "ABCDEFGHJKLMNPQRSTUVWXYZ23456789".random() }.joinToString("")
                             vm.setSyncCode(codeInput)
                         },
-                        modifier = Modifier.weight(1f)
-                    ) { Text("Generate New", color = GymColors.Text) }
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.weight(1f).height(44.dp)
+                    ) { Text("Generate New", color = GymColors.Text, fontWeight = FontWeight.SemiBold) }
                     Button(
                         onClick = { vm.setSyncCode(codeInput) },
                         enabled = codeInput.length >= 4,
                         colors = ButtonDefaults.buttonColors(containerColor = GymColors.Accent, disabledContainerColor = GymColors.Surface2),
-                        modifier = Modifier.weight(1f)
-                    ) { Text("Save Code") }
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.weight(1f).height(44.dp)
+                    ) { Text("Save Code", fontWeight = FontWeight.Bold, color = if (codeInput.length >= 4) Color.Black else GymColors.TextFaint) }
                 }
             }
         }
@@ -114,14 +127,15 @@ fun SyncScreen(vm: MembersViewModel) {
             },
             enabled = !syncing,
             colors = ButtonDefaults.buttonColors(containerColor = GymColors.Accent, disabledContainerColor = GymColors.Surface2),
-            modifier = Modifier.fillMaxWidth().height(48.dp)
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier.fillMaxWidth().height(50.dp)
         ) {
             if (syncing) {
-                CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
+                CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.Black, strokeWidth = 2.dp)
             } else {
-                Icon(Icons.Filled.Sync, null)
+                Icon(Icons.Filled.Sync, null, tint = Color.Black)
                 Spacer(Modifier.width(8.dp))
-                Text("Sync Now", fontWeight = FontWeight.Bold)
+                Text("Sync Now", fontWeight = FontWeight.Bold, color = Color.Black, fontSize = 15.sp)
             }
         }
 
@@ -133,7 +147,7 @@ fun SyncScreen(vm: MembersViewModel) {
         Spacer(Modifier.height(20.dp))
         Text(
             "PAIRED DEVICES (${paired.size}/${SyncPrefs.MAX_OTHER_DEVICES})",
-            color = GymColors.TextFaint, fontSize = 11.sp, fontWeight = FontWeight.Medium
+            color = GymColors.TextFaint, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp
         )
         Spacer(Modifier.height(8.dp))
         if (paired.isEmpty()) {
@@ -145,7 +159,8 @@ fun SyncScreen(vm: MembersViewModel) {
                         .fillMaxWidth()
                         .padding(bottom = 8.dp)
                         .clip(RoundedCornerShape(12.dp))
-                        .background(GymColors.Surface)
+                        .background(GymColors.SurfaceCard)
+                        .border(1.dp, GymColors.Border, RoundedCornerShape(12.dp))
                         .padding(12.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
@@ -157,3 +172,4 @@ fun SyncScreen(vm: MembersViewModel) {
         }
     }
 }
+

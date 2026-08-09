@@ -49,7 +49,7 @@ import java.util.UUID
 @Composable
 fun gymFieldColors() = OutlinedTextFieldDefaults.colors(
     focusedContainerColor = GymColors.Surface2,
-    unfocusedContainerColor = GymColors.Surface2,
+    unfocusedContainerColor = GymColors.SurfaceCard,
     focusedTextColor = GymColors.Text,
     unfocusedTextColor = GymColors.Text,
     focusedBorderColor = GymColors.Accent,
@@ -86,7 +86,7 @@ fun StatusRing(photoPath: String?, name: String, status: MemberStatus, size: Dp 
         } else {
             Text(
                 text = name.split(" ").mapNotNull { it.firstOrNull() }.take(2).joinToString("").uppercase(),
-                color = GymColors.TextMuted,
+                color = GymColors.Accent,
                 fontWeight = FontWeight.Bold
             )
         }
@@ -96,17 +96,18 @@ fun StatusRing(photoPath: String?, name: String, status: MemberStatus, size: Dp 
 @Composable
 fun StatusBadge(status: MemberStatus) {
     val (label, color) = when (status) {
-        MemberStatus.ACTIVE -> "Active" to GymColors.Success
-        MemberStatus.EXPIRING -> "Expiring Soon" to GymColors.Warning
-        MemberStatus.EXPIRED -> "Expired" to GymColors.Danger
+        MemberStatus.ACTIVE -> "ACTIVE" to GymColors.Success
+        MemberStatus.EXPIRING -> "EXPIRING SOON" to GymColors.Warning
+        MemberStatus.EXPIRED -> "EXPIRED" to GymColors.Danger
     }
     Box(
         modifier = Modifier
             .clip(RoundedCornerShape(50))
             .background(color.copy(alpha = 0.15f))
+            .border(1.dp, color.copy(alpha = 0.35f), RoundedCornerShape(50))
             .padding(horizontal = 10.dp, vertical = 4.dp)
     ) {
-        Text(label, color = color, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+        Text(label, color = color, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
     }
 }
 
@@ -119,21 +120,44 @@ fun BottomNav(current: Screen, modifier: Modifier = Modifier, onSelect: (Screen)
         Triple(Screen.Backup as Screen, Icons.Filled.Storage, "Backup"),
         Triple(Screen.Sync as Screen, Icons.Filled.Sync, "Sync")
     )
-    Row(
+    Box(
         modifier = modifier
             .fillMaxWidth()
-            .background(GymColors.Surface)
-            .padding(vertical = 10.dp),
-        horizontalArrangement = Arrangement.SpaceEvenly
+            .background(GymColors.Surface.copy(alpha = 0.95f))
+            .border(1.dp, GymColors.BorderSubtle, RoundedCornerShape(0.dp))
+            .padding(vertical = 8.dp)
     ) {
-        items.forEach { (screen, icon, label) ->
-            val active = current == screen
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.clickable { onSelect(screen) }
-            ) {
-                Icon(icon, contentDescription = label, tint = if (active) GymColors.Accent else GymColors.TextFaint)
-                Text(label, fontSize = 10.sp, color = if (active) GymColors.Accent else GymColors.TextFaint)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            items.forEach { (screen, icon, label) ->
+                val active = current == screen
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable { onSelect(screen) }
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(if (active) GymColors.Accent.copy(alpha = 0.18f) else Color.Transparent)
+                            .padding(horizontal = 14.dp, vertical = 4.dp)
+                    ) {
+                        Icon(icon, contentDescription = label, tint = if (active) GymColors.Accent else GymColors.TextFaint)
+                    }
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        label,
+                        fontSize = 10.sp,
+                        fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
+                        color = if (active) GymColors.Accent else GymColors.TextFaint
+                    )
+                }
             }
         }
     }
@@ -142,7 +166,7 @@ fun BottomNav(current: Screen, modifier: Modifier = Modifier, onSelect: (Screen)
 @Composable
 fun LabeledField(label: String, content: @Composable () -> Unit) {
     Column(modifier = Modifier.padding(bottom = 14.dp)) {
-        Text(label.uppercase(), color = GymColors.TextFaint, fontSize = 11.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(bottom = 6.dp))
+        Text(label.uppercase(), color = GymColors.TextFaint, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp, modifier = Modifier.padding(bottom = 6.dp))
         content()
     }
 }
@@ -157,14 +181,14 @@ fun PlanGrid(selected: String, onSelect: (String) -> Unit) {
                     Box(
                         modifier = Modifier
                             .weight(1f)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(if (active) GymColors.Accent else GymColors.Surface2)
-                            .border(1.dp, if (active) GymColors.Accent else GymColors.Border, RoundedCornerShape(8.dp))
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(if (active) GymColors.Accent else GymColors.SurfaceCard)
+                            .border(1.dp, if (active) GymColors.Accent else GymColors.Border, RoundedCornerShape(10.dp))
                             .clickable { onSelect(p) }
-                            .padding(vertical = 10.dp),
+                            .padding(vertical = 12.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(p, color = if (active) Color.White else GymColors.TextMuted, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                        Text(p, color = if (active) Color.Black else GymColors.TextMuted, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -178,9 +202,9 @@ fun DatePickerField(date: LocalDate, onChange: (LocalDate) -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .background(GymColors.Surface2)
-            .border(1.dp, GymColors.Border, RoundedCornerShape(8.dp))
+            .clip(RoundedCornerShape(10.dp))
+            .background(GymColors.SurfaceCard)
+            .border(1.dp, GymColors.Border, RoundedCornerShape(10.dp))
             .clickable {
                 android.app.DatePickerDialog(
                     context,
@@ -190,7 +214,7 @@ fun DatePickerField(date: LocalDate, onChange: (LocalDate) -> Unit) {
             }
             .padding(14.dp)
     ) {
-        Text(formatDate(date.toMillis()), color = GymColors.Text)
+        Text(formatDate(date.toMillis()), color = GymColors.Text, fontWeight = FontWeight.Medium)
     }
 }
 
@@ -202,11 +226,6 @@ fun DashboardScreen(members: List<Member>, onNavigate: (Screen) -> Unit) {
     val expiring = members.count { statusOf(it.expiryMillis) == MemberStatus.EXPIRING }
     val expired = members.count { statusOf(it.expiryMillis) == MemberStatus.EXPIRED }
     val revenue = members.sumOf { m -> m.historyJson.toHistoryList().sumOf { it.fee } }
-    // "Expiring Soon" widget: every member whose membership expires within the next
-    // 7 days (inclusive of today and day 7), earliest expiry first. Iterates the full
-    // members list every recomposition — `members` itself is backed by a Room Flow, so
-    // this recalculates automatically whenever a member is added, edited, deleted, or
-    // imported/synced in. Intentionally unbounded: do not add .take()/.first() here.
     val attention = members
         .filter { m ->
             val daysRemaining = daysBetweenNow(m.expiryMillis)
@@ -220,13 +239,16 @@ fun DashboardScreen(members: List<Member>, onNavigate: (Screen) -> Unit) {
     ) {
         item {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.clip(RoundedCornerShape(8.dp)).background(GymColors.Accent).padding(6.dp)) {
-                    Icon(Icons.Filled.FitnessCenter, null, tint = Color.White, modifier = Modifier.size(16.dp))
+                Box(Modifier.clip(RoundedCornerShape(10.dp)).background(GymColors.Accent).padding(8.dp)) {
+                    Icon(Icons.Filled.FitnessCenter, null, tint = Color.Black, modifier = Modifier.size(20.dp))
                 }
-                Spacer(Modifier.width(8.dp))
-                Text("MAJOR GYM", color = GymColors.Text, fontWeight = FontWeight.Bold, fontSize = 22.sp)
+                Spacer(Modifier.width(10.dp))
+                Column {
+                    Text("MAJOR GYM", color = GymColors.Text, fontWeight = FontWeight.ExtraBold, fontSize = 22.sp, letterSpacing = 0.5.sp)
+                    Text("Membership & Biometric Kiosk", color = GymColors.TextMuted, fontSize = 12.sp)
+                }
             }
-            Text("Membership overview", color = GymColors.TextMuted, fontSize = 13.sp, modifier = Modifier.padding(top = 2.dp, bottom = 16.dp))
+            Spacer(Modifier.height(16.dp))
         }
         item {
             GymAttendanceQrCard()
@@ -244,17 +266,22 @@ fun DashboardScreen(members: List<Member>, onNavigate: (Screen) -> Unit) {
         }
         item {
             Column(
-                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(GymColors.Surface).padding(16.dp)
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(GymColors.SurfaceCard)
+                    .border(1.dp, GymColors.Border, RoundedCornerShape(16.dp))
+                    .padding(16.dp)
             ) {
-                Text("TOTAL REVENUE", color = GymColors.Gold, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                Text("TOTAL REVENUE", color = GymColors.Gold, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
                 Spacer(Modifier.height(6.dp))
-                Text(formatMoney(revenue), color = GymColors.Gold, fontSize = 30.sp, fontWeight = FontWeight.Bold)
+                Text(formatMoney(revenue), color = GymColors.Gold, fontSize = 32.sp, fontWeight = FontWeight.ExtraBold)
             }
             Spacer(Modifier.height(18.dp))
         }
         if (attention.isNotEmpty()) {
             item {
-                Text("NEEDS ATTENTION (${attention.size})", color = GymColors.TextFaint, fontSize = 11.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(bottom = 8.dp))
+                Text("NEEDS ATTENTION (${attention.size})", color = GymColors.TextFaint, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp, modifier = Modifier.padding(bottom = 8.dp))
             }
             items(attention, key = { it.id }) { m ->
                 val status = statusOf(m.expiryMillis)
@@ -263,19 +290,20 @@ fun DashboardScreen(members: List<Member>, onNavigate: (Screen) -> Unit) {
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(bottom = 8.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(GymColors.Surface)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(GymColors.SurfaceCard)
+                        .border(1.dp, GymColors.Border, RoundedCornerShape(14.dp))
                         .clickable { onNavigate(Screen.Profile(m.id)) }
-                        .padding(10.dp),
+                        .padding(12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    StatusRing(m.photoPath, m.name, status, 40.dp)
-                    Spacer(Modifier.width(10.dp))
+                    StatusRing(m.photoPath, m.name, status, 44.dp)
+                    Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
-                        Text(m.name, color = GymColors.Text, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                        Text(m.name, color = GymColors.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                         Text(
                             if (days < 0) "Expired ${-days}d ago" else "Expires in ${days}d",
-                            color = GymColors.TextMuted, fontSize = 11.sp
+                            color = GymColors.TextMuted, fontSize = 12.sp
                         )
                     }
                     StatusBadge(status)
@@ -287,10 +315,6 @@ fun DashboardScreen(members: List<Member>, onNavigate: (Screen) -> Unit) {
 
 /**
  * Permanent attendance QR, always visible on the Dashboard (add-on request).
- * Encodes [QrUtils.GYM_ATTENDANCE_CODE] — one fixed value for the whole gym
- * that never changes, unlike the per-member QR. Members scan this to check in;
- * this card just renders it and lets the owner display it full-size or share
- * the image (e.g. to print, or send to a front-desk tablet).
  */
 @Composable
 fun GymAttendanceQrCard() {
@@ -299,18 +323,23 @@ fun GymAttendanceQrCard() {
     val qrBitmap = remember { QrUtils.gymQrBitmap(QrUtils.GYM_ATTENDANCE_CODE) }
 
     Column(
-        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(GymColors.Surface).padding(16.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(GymColors.SurfaceCard)
+            .border(1.dp, GymColors.Border, RoundedCornerShape(16.dp))
+            .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text("GYM ATTENDANCE QR", color = GymColors.Gold, fontSize = 11.sp, fontWeight = FontWeight.Medium, modifier = Modifier.align(Alignment.Start))
+        Text("GYM ATTENDANCE QR", color = GymColors.Accent, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp, modifier = Modifier.align(Alignment.Start))
         Text(
             "Members scan this to check in \u2014 fixed, never changes",
-            color = GymColors.TextFaint, fontSize = 10.sp, modifier = Modifier.align(Alignment.Start).padding(top = 2.dp, bottom = 12.dp)
+            color = GymColors.TextFaint, fontSize = 11.sp, modifier = Modifier.align(Alignment.Start).padding(top = 2.dp, bottom = 12.dp)
         )
         Box(
             modifier = Modifier
                 .size(160.dp)
-                .clip(RoundedCornerShape(12.dp))
+                .clip(RoundedCornerShape(14.dp))
                 .background(Color.White)
                 .padding(10.dp)
                 .clickable { fullScreen = true },
@@ -318,8 +347,8 @@ fun GymAttendanceQrCard() {
         ) {
             Image(bitmap = qrBitmap.asImageBitmap(), contentDescription = "Gym attendance QR code")
         }
-        Spacer(Modifier.height(12.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+        Spacer(Modifier.height(14.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
             ActionButton(Icons.Filled.Fullscreen, "Display", GymColors.Accent, Modifier.weight(1f)) { fullScreen = true }
             ActionButton(Icons.Filled.Share, "Share", GymColors.Accent, Modifier.weight(1f)) {
                 QrShareUtils.shareBitmap(context, qrBitmap, "gym_attendance_qr.png", "Share gym attendance QR")
@@ -330,7 +359,11 @@ fun GymAttendanceQrCard() {
     if (fullScreen) {
         Dialog(onDismissRequest = { fullScreen = false }) {
             Column(
-                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color.White).padding(24.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Color.White)
+                    .padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Image(
@@ -339,7 +372,7 @@ fun GymAttendanceQrCard() {
                     modifier = Modifier.fillMaxWidth()
                 )
                 Spacer(Modifier.height(12.dp))
-                Text("MAJOR GYM \u2014 Scan to mark attendance", color = androidx.compose.ui.graphics.Color.Black, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                Text("MAJOR GYM \u2014 Scan to mark attendance", color = Color.Black, fontSize = 14.sp, fontWeight = FontWeight.Bold)
             }
         }
     }
@@ -347,10 +380,16 @@ fun GymAttendanceQrCard() {
 
 @Composable
 fun StatCard(label: String, value: String, modifier: Modifier = Modifier) {
-    Column(modifier = modifier.clip(RoundedCornerShape(12.dp)).background(GymColors.Surface).padding(14.dp)) {
-        Text(label.uppercase(), color = GymColors.TextFaint, fontSize = 10.sp, fontWeight = FontWeight.Medium)
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(16.dp))
+            .background(GymColors.SurfaceCard)
+            .border(1.dp, GymColors.Border, RoundedCornerShape(16.dp))
+            .padding(16.dp)
+    ) {
+        Text(label.uppercase(), color = GymColors.TextFaint, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
         Spacer(Modifier.height(8.dp))
-        Text(value, color = GymColors.Text, fontSize = 26.sp, fontWeight = FontWeight.Bold)
+        Text(value, color = GymColors.Accent, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
     }
 }
 
@@ -364,28 +403,30 @@ fun MembersScreen(members: List<Member>, onNavigate: (Screen) -> Unit) {
     }
 
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp).padding(top = 20.dp)) {
-        Text("MEMBERS", color = GymColors.Text, fontWeight = FontWeight.Bold, fontSize = 22.sp)
+        Text("MEMBERS", color = GymColors.Text, fontWeight = FontWeight.ExtraBold, fontSize = 22.sp, letterSpacing = 0.5.sp)
         Spacer(Modifier.height(12.dp))
         OutlinedTextField(
             value = query,
             onValueChange = { query = it },
-            placeholder = { Text("Search by name or phone", color = GymColors.TextFaint) },
-            leadingIcon = { Icon(Icons.Filled.Search, null, tint = GymColors.TextFaint) },
+            placeholder = { Text("Search by name, phone or ID proof", color = GymColors.TextFaint) },
+            leadingIcon = { Icon(Icons.Filled.Search, null, tint = GymColors.Accent) },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp),
             colors = gymFieldColors()
         )
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(14.dp))
         LazyColumn(contentPadding = PaddingValues(bottom = 90.dp)) {
             items(filtered) { m ->
                 val status = statusOf(m.expiryMillis)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(bottom = 8.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(GymColors.Surface)
-                        .padding(10.dp),
+                        .padding(bottom = 10.dp)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(GymColors.SurfaceCard)
+                        .border(1.dp, GymColors.Border, RoundedCornerShape(16.dp))
+                        .padding(12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Row(
@@ -393,27 +434,26 @@ fun MembersScreen(members: List<Member>, onNavigate: (Screen) -> Unit) {
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         StatusRing(m.photoPath, m.name, status, 48.dp)
-                        Spacer(Modifier.width(10.dp))
+                        Spacer(Modifier.width(12.dp))
                         Column {
-                            Text(m.name, color = GymColors.Text, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                            Text("${m.phone} \u00B7 ${m.plan}", color = GymColors.TextMuted, fontSize = 11.sp)
+                            Text(m.name, color = GymColors.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                            Text("${m.phone} \u00B7 ${m.plan}", color = GymColors.TextMuted, fontSize = 12.sp)
                             Text("Expires ${formatDate(m.expiryMillis)}", color = GymColors.TextFaint, fontSize = 11.sp)
                         }
                     }
                     Column(horizontalAlignment = Alignment.End) {
                         StatusBadge(status)
-                        Spacer(Modifier.height(6.dp))
-                        Text(
-                            "Renew",
-                            color = GymColors.Accent,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold,
+                        Spacer(Modifier.height(8.dp))
+                        Box(
                             modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
+                                .clip(RoundedCornerShape(20.dp))
                                 .background(GymColors.Accent.copy(alpha = 0.15f))
+                                .border(1.dp, GymColors.Accent.copy(alpha = 0.4f), RoundedCornerShape(20.dp))
                                 .clickable { onNavigate(Screen.Renew(m.id)) }
-                                .padding(horizontal = 8.dp, vertical = 4.dp)
-                        )
+                                .padding(horizontal = 12.dp, vertical = 5.dp)
+                        ) {
+                            Text("Renew", color = GymColors.Accent, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
             }
@@ -502,18 +542,18 @@ fun AddEditMemberScreen(vm: MembersViewModel, existing: Member?, onNavigate: (Sc
                 Icons.Filled.ArrowBack, null, tint = GymColors.Text,
                 modifier = Modifier.clickable { onNavigate(existing?.let { Screen.Profile(it.id) } ?: Screen.Members) }
             )
-            Spacer(Modifier.width(8.dp))
-            Text(if (existing == null) "ADD MEMBER" else "EDIT MEMBER", color = GymColors.Text, fontWeight = FontWeight.Bold, fontSize = 20.sp)
+            Spacer(Modifier.width(10.dp))
+            Text(if (existing == null) "ADD MEMBER" else "EDIT MEMBER", color = GymColors.Text, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, letterSpacing = 0.5.sp)
         }
         Spacer(Modifier.height(20.dp))
 
         Box(
             modifier = Modifier
-                .size(92.dp)
+                .size(96.dp)
                 .align(Alignment.CenterHorizontally)
                 .clip(CircleShape)
-                .background(GymColors.Surface2)
-                .border(2.dp, GymColors.Border, CircleShape)
+                .background(GymColors.SurfaceCard)
+                .border(2.dp, GymColors.Accent, CircleShape)
                 .clickable { showPhotoSourceSheet = true },
             contentAlignment = Alignment.Center
         ) {
@@ -521,22 +561,22 @@ fun AddEditMemberScreen(vm: MembersViewModel, existing: Member?, onNavigate: (Sc
             if (p != null && File(p).exists()) {
                 AsyncImage(model = File(p), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().clip(CircleShape))
             } else {
-                Icon(Icons.Filled.CameraAlt, contentDescription = null, tint = GymColors.TextFaint)
+                Icon(Icons.Filled.CameraAlt, contentDescription = null, tint = GymColors.Accent, modifier = Modifier.size(32.dp))
             }
         }
         Text(
             "Tap to add photo", color = GymColors.TextFaint, fontSize = 11.sp,
-            modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 6.dp, bottom = 20.dp)
+            modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 8.dp, bottom = 20.dp)
         )
 
         LabeledField("Full Name") {
-            OutlinedTextField(value = name, onValueChange = { name = it }, modifier = Modifier.fillMaxWidth(), singleLine = true, colors = gymFieldColors())
+            OutlinedTextField(value = name, onValueChange = { name = it }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(10.dp), colors = gymFieldColors())
         }
         LabeledField("Phone Number") {
             OutlinedTextField(
                 value = phone,
                 onValueChange = { phone = it.filter { c -> c.isDigit() }.take(10) },
-                modifier = Modifier.fillMaxWidth(), singleLine = true, colors = gymFieldColors(),
+                modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(10.dp), colors = gymFieldColors(),
                 isError = phoneTaken
             )
             if (phoneTaken) {
@@ -556,7 +596,7 @@ fun AddEditMemberScreen(vm: MembersViewModel, existing: Member?, onNavigate: (Sc
                     idProof = filtered
                 },
                 placeholder = { Text("Enter ID Number (Optional)", color = GymColors.TextFaint) },
-                modifier = Modifier.fillMaxWidth(), singleLine = true, colors = gymFieldColors(),
+                modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(10.dp), colors = gymFieldColors(),
                 isError = idProofError
             )
             if (idProofError) {
@@ -595,16 +635,16 @@ fun AddEditMemberScreen(vm: MembersViewModel, existing: Member?, onNavigate: (Sc
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(12.dp))
-                        .background(GymColors.Surface2)
+                        .background(GymColors.SurfaceCard)
                         .border(1.dp, GymColors.Border, RoundedCornerShape(12.dp))
                         .clickable { showIdPhotoSourceSheet = true }
-                        .padding(20.dp)
+                        .padding(18.dp)
                 ) {
-                    Icon(Icons.Filled.CameraAlt, null, tint = GymColors.TextFaint, modifier = Modifier.size(22.dp))
+                    Icon(Icons.Filled.CameraAlt, null, tint = GymColors.Accent, modifier = Modifier.size(22.dp))
                     Spacer(Modifier.width(6.dp))
-                    Icon(Icons.Filled.Description, null, tint = GymColors.TextFaint, modifier = Modifier.size(22.dp))
+                    Icon(Icons.Filled.Description, null, tint = GymColors.Accent, modifier = Modifier.size(22.dp))
                     Spacer(Modifier.width(12.dp))
-                    Text("Tap to add ID Proof Photo", color = GymColors.TextFaint, fontSize = 13.sp)
+                    Text("Tap to add ID Proof Photo", color = GymColors.TextMuted, fontSize = 13.sp)
                 }
             }
         }
@@ -614,7 +654,7 @@ fun AddEditMemberScreen(vm: MembersViewModel, existing: Member?, onNavigate: (Sc
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                     OutlinedTextField(
                         value = passkey, onValueChange = {}, readOnly = true,
-                        modifier = Modifier.weight(1f), singleLine = true, colors = gymFieldColors()
+                        modifier = Modifier.weight(1f), singleLine = true, shape = RoundedCornerShape(10.dp), colors = gymFieldColors()
                     )
                     Spacer(Modifier.width(8.dp))
                     Icon(
@@ -643,15 +683,15 @@ fun AddEditMemberScreen(vm: MembersViewModel, existing: Member?, onNavigate: (Sc
             OutlinedTextField(
                 value = fee,
                 onValueChange = { fee = it.filter { c -> c.isDigit() } },
-                modifier = Modifier.fillMaxWidth(), singleLine = true, colors = gymFieldColors()
+                modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(10.dp), colors = gymFieldColors()
             )
         }
 
         Row(
-            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(GymColors.Success.copy(alpha = 0.14f)).padding(12.dp),
+            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(GymColors.Success.copy(alpha = 0.14f)).border(1.dp, GymColors.Success.copy(alpha = 0.3f), RoundedCornerShape(12.dp)).padding(14.dp),
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text("Auto-calculated expiry", color = GymColors.Success, fontSize = 12.sp)
+            Text("Auto-calculated expiry", color = GymColors.Success, fontSize = 12.sp, fontWeight = FontWeight.Medium)
             Text(formatDate(expiryMillis), color = GymColors.Success, fontWeight = FontWeight.Bold, fontSize = 13.sp)
         }
         Spacer(Modifier.height(20.dp))
@@ -671,8 +711,6 @@ fun AddEditMemberScreen(vm: MembersViewModel, existing: Member?, onNavigate: (Sc
                     createdAtMillis = existing?.createdAtMillis ?: System.currentTimeMillis(),
                     lastAttendanceMillis = existing?.lastAttendanceMillis,
                     archived = existing?.archived ?: false,
-                    // Add-on: unique, time-limited QR — a brand-new member gets a fresh
-                    // token/expiry; a plain edit (not add, not renew) keeps the existing one.
                     qrToken = existing?.qrToken ?: QrUtils.freshToken(),
                     qrTokenExpiryMillis = existing?.qrTokenExpiryMillis
                         ?: (System.currentTimeMillis() + QrUtils.TOKEN_VALIDITY_MILLIS),
@@ -683,18 +721,19 @@ fun AddEditMemberScreen(vm: MembersViewModel, existing: Member?, onNavigate: (Sc
                 if (existing == null) onNavigate(Screen.Registered(id, passkey)) else onNavigate(Screen.Profile(id))
             },
             enabled = valid,
-            colors = ButtonDefaults.buttonColors(containerColor = GymColors.Accent, disabledContainerColor = GymColors.Surface2),
-            modifier = Modifier.fillMaxWidth().height(48.dp)
+            colors = ButtonDefaults.buttonColors(containerColor = GymColors.Accent, disabledContainerColor = GymColors.SurfaceCard),
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier.fillMaxWidth().height(50.dp)
         ) {
-            Text(if (existing == null) "Add Member" else "Save Changes", fontWeight = FontWeight.Bold)
+            Text(if (existing == null) "Add Member" else "Save Changes", fontWeight = FontWeight.Bold, color = if (valid) Color.Black else GymColors.TextFaint, fontSize = 15.sp)
         }
     }
 
     if (showPhotoSourceSheet) {
         AlertDialog(
             onDismissRequest = { showPhotoSourceSheet = false },
-            containerColor = GymColors.Surface,
-            title = { Text("Add Photo", color = GymColors.Text) },
+            containerColor = GymColors.SurfaceCard,
+            title = { Text("Add Photo", color = GymColors.Text, fontWeight = FontWeight.Bold) },
             text = {
                 Column {
                     Row(
@@ -736,8 +775,8 @@ fun AddEditMemberScreen(vm: MembersViewModel, existing: Member?, onNavigate: (Sc
     if (showIdPhotoSourceSheet) {
         AlertDialog(
             onDismissRequest = { showIdPhotoSourceSheet = false },
-            containerColor = GymColors.Surface,
-            title = { Text("ID Proof Photo", color = GymColors.Text) },
+            containerColor = GymColors.SurfaceCard,
+            title = { Text("ID Proof Photo", color = GymColors.Text, fontWeight = FontWeight.Bold) },
             text = {
                 Column {
                     Row(
@@ -779,8 +818,8 @@ fun AddEditMemberScreen(vm: MembersViewModel, existing: Member?, onNavigate: (Sc
     if (confirmDeleteIdPhoto) {
         AlertDialog(
             onDismissRequest = { confirmDeleteIdPhoto = false },
-            containerColor = GymColors.Surface,
-            title = { Text("Remove ID Proof Photo?", color = GymColors.Text) },
+            containerColor = GymColors.SurfaceCard,
+            title = { Text("Remove ID Proof Photo?", color = GymColors.Text, fontWeight = FontWeight.Bold) },
             text = { Text("This can't be undone.", color = GymColors.TextMuted) },
             confirmButton = {
                 TextButton(onClick = {
@@ -806,9 +845,6 @@ fun ProfileScreen(member: Member, vm: MembersViewModel, onNavigate: (Screen) -> 
     val status = statusOf(member.expiryMillis)
     val days = daysBetweenNow(member.expiryMillis)
     val history = remember(member.historyJson) { member.historyJson.toHistoryList().reversed() }
-    // Most recent renewal date, if any — history is already newest-first, so
-    // the first "Renewed" entry (as opposed to the original "Joined" entry)
-    // is the latest one. Members who've never renewed simply won't have one.
     val lastRenewedMillis = remember(history) { history.firstOrNull { it.type == "Renewed" }?.dateMillis }
 
     LazyColumn(
@@ -818,24 +854,31 @@ fun ProfileScreen(member: Member, vm: MembersViewModel, onNavigate: (Screen) -> 
         item {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 16.dp)) {
                 Icon(Icons.Filled.ArrowBack, null, tint = GymColors.Text, modifier = Modifier.clickable { onNavigate(Screen.Members) })
-                Spacer(Modifier.width(8.dp))
-                Text("MEMBER PROFILE", color = GymColors.Text, fontWeight = FontWeight.Bold, fontSize = 20.sp)
+                Spacer(Modifier.width(10.dp))
+                Text("MEMBER PROFILE", color = GymColors.Text, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, letterSpacing = 0.5.sp)
             }
             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
                 Box(modifier = Modifier.clickable { showPhoto = true }) {
-                    StatusRing(member.photoPath, member.name, status, 92.dp)
+                    StatusRing(member.photoPath, member.name, status, 96.dp)
                 }
-                Spacer(Modifier.height(10.dp))
-                Text(member.name, color = GymColors.Text, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(12.dp))
+                Text(member.name, color = GymColors.Text, fontSize = 20.sp, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(6.dp))
                 StatusBadge(status)
-                Spacer(Modifier.height(4.dp))
+                Spacer(Modifier.height(6.dp))
                 Text(
                     if (days < 0) "Expired ${-days} day(s) ago" else "$days day(s) remaining",
-                    color = GymColors.TextFaint, fontSize = 11.sp
+                    color = GymColors.TextFaint, fontSize = 12.sp
                 )
             }
-            Column(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(GymColors.Surface).padding(16.dp)) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(GymColors.SurfaceCard)
+                    .border(1.dp, GymColors.Border, RoundedCornerShape(16.dp))
+                    .padding(16.dp)
+            ) {
                 ProfileRow(Icons.Filled.Phone, "Phone", member.phone)
                 ProfileRow(Icons.Filled.CalendarToday, "Joined", formatDate(member.joinedMillis))
                 if (lastRenewedMillis != null) {
@@ -847,9 +890,13 @@ fun ProfileScreen(member: Member, vm: MembersViewModel, onNavigate: (Screen) -> 
                 ProfileRow(Icons.Filled.Fingerprint, "Fingerprint", if (member.fingerprintTemplate != null) "Enrolled" else "Not Enrolled", last = true)
             }
             Spacer(Modifier.height(14.dp))
-            Card(colors = CardDefaults.cardColors(containerColor = GymColors.Surface), modifier = Modifier.fillMaxWidth()) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = GymColors.SurfaceCard),
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.fillMaxWidth().border(1.dp, GymColors.Border, RoundedCornerShape(16.dp))
+            ) {
                 Column(Modifier.padding(16.dp)) {
-                    Text("ID PROOF PHOTO", color = GymColors.TextFaint, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                    Text("ID PROOF PHOTO", color = GymColors.TextFaint, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
                     Spacer(Modifier.height(10.dp))
                     val idPhotoFile = member.idProofPhotoPath.takeIf { it.isNotBlank() }?.let { File(it) }?.takeIf { it.exists() }
                     if (idPhotoFile != null) {
@@ -867,14 +914,12 @@ fun ProfileScreen(member: Member, vm: MembersViewModel, onNavigate: (Screen) -> 
                 }
             }
             Spacer(Modifier.height(16.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
                 ActionButton(Icons.Filled.Refresh, "Renew", GymColors.Accent, Modifier.weight(1f)) { onNavigate(Screen.Renew(member.id)) }
                 ActionButton(Icons.Filled.Edit, "Edit", GymColors.TextMuted, Modifier.weight(1f)) { onNavigate(Screen.Edit(member.id)) }
                 ActionButton(Icons.Filled.Delete, "Delete", GymColors.Danger, Modifier.weight(1f)) { confirmDelete = true }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
-                // Add-on: view the member's current QR, or force a fresh time-limited
-                // token/expiry on demand (e.g. after the current one has lapsed).
                 ActionButton(Icons.Filled.QrCode, if (QrUtils.isTokenValid(member)) "View QR" else "Regenerate QR", GymColors.Accent, Modifier.weight(1f)) {
                     if (!QrUtils.isTokenValid(member)) {
                         vm.save(
@@ -894,11 +939,17 @@ fun ProfileScreen(member: Member, vm: MembersViewModel, onNavigate: (Screen) -> 
                     Modifier.weight(1f)
                 ) { onNavigate(Screen.EnrollFingerprint(member.id)) }
             }
-            Text("HISTORY", color = GymColors.TextFaint, fontSize = 11.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(bottom = 8.dp))
+            Text("HISTORY", color = GymColors.TextFaint, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp, modifier = Modifier.padding(bottom = 8.dp))
         }
         items(history) { h ->
             Row(
-                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp).clip(RoundedCornerShape(12.dp)).background(GymColors.Surface).padding(12.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 8.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(GymColors.SurfaceCard)
+                    .border(1.dp, GymColors.Border, RoundedCornerShape(12.dp))
+                    .padding(12.dp),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Column {
@@ -920,11 +971,11 @@ fun ProfileScreen(member: Member, vm: MembersViewModel, onNavigate: (Screen) -> 
     if (confirmDelete) {
         AlertDialog(
             onDismissRequest = { confirmDelete = false },
-            containerColor = GymColors.Surface,
-            title = { Text("Delete member", color = GymColors.Text) },
+            containerColor = GymColors.SurfaceCard,
+            title = { Text("Delete member", color = GymColors.Text, fontWeight = FontWeight.Bold) },
             text = { Text("Delete ${member.name}? This cannot be undone.", color = GymColors.TextMuted) },
             confirmButton = {
-                TextButton(onClick = { vm.delete(member); onNavigate(Screen.Members) }) { Text("Delete", color = GymColors.Danger) }
+                TextButton(onClick = { vm.delete(member); onNavigate(Screen.Members) }) { Text("Delete", color = GymColors.Danger, fontWeight = FontWeight.Bold) }
             },
             dismissButton = {
                 TextButton(onClick = { confirmDelete = false }) { Text("Cancel", color = GymColors.TextMuted) }
@@ -936,23 +987,28 @@ fun ProfileScreen(member: Member, vm: MembersViewModel, onNavigate: (Screen) -> 
 @Composable
 fun ProfileRow(icon: ImageVector, label: String, value: String, last: Boolean = false) {
     Row(modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-        Icon(icon, null, tint = GymColors.TextFaint, modifier = Modifier.size(16.dp))
-        Spacer(Modifier.width(10.dp))
-        Text(label, color = GymColors.TextFaint, fontSize = 12.sp, modifier = Modifier.weight(1f))
-        Text(value, color = GymColors.Text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+        Icon(icon, null, tint = GymColors.Accent, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(12.dp))
+        Text(label, color = GymColors.TextFaint, fontSize = 13.sp, modifier = Modifier.weight(1f))
+        Text(value, color = GymColors.Text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
     }
-    if (!last) Divider(color = GymColors.Border, thickness = 1.dp)
+    if (!last) Divider(color = GymColors.BorderSubtle, thickness = 1.dp)
 }
 
 @Composable
 fun ActionButton(icon: ImageVector, label: String, color: Color, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Column(
-        modifier = modifier.clip(RoundedCornerShape(8.dp)).background(GymColors.Surface).clickable { onClick() }.padding(vertical = 14.dp),
+        modifier = modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(GymColors.SurfaceCard)
+            .border(1.dp, GymColors.Border, RoundedCornerShape(12.dp))
+            .clickable { onClick() }
+            .padding(vertical = 14.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Icon(icon, null, tint = color, modifier = Modifier.size(18.dp))
+        Icon(icon, null, tint = color, modifier = Modifier.size(20.dp))
         Spacer(Modifier.height(4.dp))
-        Text(label, color = color, fontSize = 11.sp)
+        Text(label, color = color, fontSize = 11.sp, fontWeight = FontWeight.Medium)
     }
 }
 
@@ -970,15 +1026,15 @@ fun RenewScreen(member: Member, vm: MembersViewModel, onNavigate: (Screen) -> Un
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp).padding(top = 20.dp, bottom = 90.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 16.dp)) {
             Icon(Icons.Filled.ArrowBack, null, tint = GymColors.Text, modifier = Modifier.clickable { onNavigate(Screen.Profile(member.id)) })
-            Spacer(Modifier.width(8.dp))
-            Text("RENEW MEMBERSHIP", color = GymColors.Text, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            Spacer(Modifier.width(10.dp))
+            Text("RENEW MEMBERSHIP", color = GymColors.Text, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, letterSpacing = 0.5.sp)
         }
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 20.dp)) {
             StatusRing(member.photoPath, member.name, statusOf(member.expiryMillis), 52.dp)
-            Spacer(Modifier.width(10.dp))
+            Spacer(Modifier.width(12.dp))
             Column {
-                Text(member.name, color = GymColors.Text, fontSize = 15.sp, fontWeight = FontWeight.Medium)
-                Text("Current expiry: ${formatDate(member.expiryMillis)}", color = GymColors.TextMuted, fontSize = 11.sp)
+                Text(member.name, color = GymColors.Text, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                Text("Current expiry: ${formatDate(member.expiryMillis)}", color = GymColors.TextMuted, fontSize = 12.sp)
             }
         }
         LabeledField("Renewal Plan") { PlanGrid(plan) { plan = it } }
@@ -986,14 +1042,14 @@ fun RenewScreen(member: Member, vm: MembersViewModel, onNavigate: (Screen) -> Un
             OutlinedTextField(
                 value = fee,
                 onValueChange = { fee = it.filter { c -> c.isDigit() } },
-                modifier = Modifier.fillMaxWidth(), singleLine = true, colors = gymFieldColors()
+                modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(10.dp), colors = gymFieldColors()
             )
         }
         Row(
-            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(GymColors.Success.copy(alpha = 0.14f)).padding(12.dp),
+            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(GymColors.Success.copy(alpha = 0.14f)).border(1.dp, GymColors.Success.copy(alpha = 0.3f), RoundedCornerShape(12.dp)).padding(14.dp),
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text("New expiry date", color = GymColors.Success, fontSize = 12.sp)
+            Text("New expiry date", color = GymColors.Success, fontSize = 12.sp, fontWeight = FontWeight.Medium)
             Text(formatDate(newExpiry), color = GymColors.Success, fontWeight = FontWeight.Bold, fontSize = 13.sp)
         }
         Spacer(Modifier.height(20.dp))
@@ -1005,9 +1061,6 @@ fun RenewScreen(member: Member, vm: MembersViewModel, onNavigate: (Screen) -> Un
                     member.copy(
                         plan = plan, fee = feeVal, expiryMillis = newExpiry, historyJson = newHistory.toJson(),
                         updatedAtMillis = System.currentTimeMillis(),
-                        // Add-on: every renewal rotates the QR token to a brand-new one with a
-                        // fresh expiry window, so a QR captured before this renewal can never be
-                        // replayed by a client to read the member's old membership data.
                         qrToken = QrUtils.freshToken(),
                         qrTokenExpiryMillis = System.currentTimeMillis() + QrUtils.TOKEN_VALIDITY_MILLIS
                     )
@@ -1015,21 +1068,16 @@ fun RenewScreen(member: Member, vm: MembersViewModel, onNavigate: (Screen) -> Un
                 onNavigate(Screen.Renewed(member.id, justRenewed = true))
             },
             colors = ButtonDefaults.buttonColors(containerColor = GymColors.Accent),
-            modifier = Modifier.fillMaxWidth().height(48.dp)
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier.fillMaxWidth().height(50.dp)
         ) {
-            Text("Confirm Renewal", fontWeight = FontWeight.Bold)
+            Text("Confirm Renewal", fontWeight = FontWeight.Bold, color = Color.Black, fontSize = 15.sp)
         }
     }
 }
 
 // ---------- Renewal / QR success ----------
 
-/**
- * Shown after a renewal is confirmed, and also reachable on-demand from the
- * Profile screen's QR button (add-on: unique, time-limited membership QR).
- * Always displays the member's *current* qrToken, so it's correct whether it
- * was just rotated by a renewal or by a manual regenerate.
- */
 @Composable
 fun RenewalSuccessScreen(member: Member, justRenewed: Boolean = false, onNavigate: (Screen) -> Unit) {
     val context = LocalContext.current
@@ -1041,23 +1089,23 @@ fun RenewalSuccessScreen(member: Member, justRenewed: Boolean = false, onNavigat
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = GymColors.Success, modifier = Modifier.size(48.dp))
+        Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = GymColors.Success, modifier = Modifier.size(52.dp))
         Spacer(Modifier.height(12.dp))
-        Text(if (justRenewed) "MEMBERSHIP RENEWED" else "QR UPDATED", color = GymColors.Text, fontWeight = FontWeight.Bold, fontSize = 20.sp)
+        Text(if (justRenewed) "MEMBERSHIP RENEWED" else "QR UPDATED", color = GymColors.Text, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, letterSpacing = 0.5.sp)
         Text(member.name, color = GymColors.TextMuted, fontSize = 14.sp, modifier = Modifier.padding(top = 4.dp))
         Spacer(Modifier.height(24.dp))
 
         Box(
             modifier = Modifier
                 .size(220.dp)
-                .clip(RoundedCornerShape(12.dp))
+                .clip(RoundedCornerShape(16.dp))
                 .background(Color.White)
                 .padding(16.dp),
             contentAlignment = Alignment.Center
         ) {
             Image(bitmap = qrBitmap.asImageBitmap(), contentDescription = "Member QR code")
         }
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(10.dp))
         Text(
             if (valid) "Valid until ${formatDateTime(member.qrTokenExpiryMillis)}" else "Expired \u2014 regenerate before sharing",
             color = if (valid) GymColors.TextFaint else GymColors.Danger,
@@ -1073,26 +1121,29 @@ fun RenewalSuccessScreen(member: Member, justRenewed: Boolean = false, onNavigat
             Button(
                 onClick = { WhatsAppShare.shareRenewal(context, member) },
                 colors = ButtonDefaults.buttonColors(containerColor = GymColors.Accent),
-                modifier = Modifier.fillMaxWidth().height(48.dp)
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth().height(50.dp)
             ) {
-                Icon(Icons.Filled.Share, contentDescription = null)
+                Icon(Icons.Filled.Share, contentDescription = null, tint = Color.Black)
                 Spacer(Modifier.width(8.dp))
-                Text("Share Renewal Update", fontWeight = FontWeight.Bold)
+                Text("Share Renewal Update", fontWeight = FontWeight.Bold, color = Color.Black, fontSize = 15.sp)
             }
             Spacer(Modifier.height(12.dp))
             OutlinedButton(
                 onClick = { onNavigate(Screen.Profile(member.id)) },
-                modifier = Modifier.fillMaxWidth().height(48.dp)
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth().height(50.dp)
             ) {
-                Text("Done")
+                Text("Done", color = GymColors.Text)
             }
         } else {
             Button(
                 onClick = { onNavigate(Screen.Profile(member.id)) },
                 colors = ButtonDefaults.buttonColors(containerColor = GymColors.Accent),
-                modifier = Modifier.fillMaxWidth().height(48.dp)
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth().height(50.dp)
             ) {
-                Text("Done", fontWeight = FontWeight.Bold)
+                Text("Done", fontWeight = FontWeight.Bold, color = Color.Black, fontSize = 15.sp)
             }
         }
     }
@@ -1130,17 +1181,21 @@ fun BackupScreen(vm: MembersViewModel) {
     }
 
     Column(modifier = Modifier.fillMaxSize().padding(16.dp).padding(top = 20.dp, bottom = 90.dp)) {
-        Text("BACKUP", color = GymColors.Text, fontWeight = FontWeight.Bold, fontSize = 22.sp)
+        Text("BACKUP", color = GymColors.Text, fontWeight = FontWeight.ExtraBold, fontSize = 22.sp, letterSpacing = 0.5.sp)
         Spacer(Modifier.height(4.dp))
         Text("Export your gym records, or restore them on a new phone.", color = GymColors.TextMuted, fontSize = 13.sp)
         Spacer(Modifier.height(20.dp))
 
-        Card(colors = CardDefaults.cardColors(containerColor = GymColors.Surface), modifier = Modifier.fillMaxWidth()) {
+        Card(
+            colors = CardDefaults.cardColors(containerColor = GymColors.SurfaceCard),
+            shape = RoundedCornerShape(16.dp),
+            modifier = Modifier.fillMaxWidth().border(1.dp, GymColors.Border, RoundedCornerShape(16.dp))
+        ) {
             Column(Modifier.padding(16.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Filled.Download, null, tint = GymColors.Accent, modifier = Modifier.size(16.dp))
+                    Icon(Icons.Filled.Download, null, tint = GymColors.Accent, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text("Export All Records", color = GymColors.Text, fontWeight = FontWeight.Medium)
+                    Text("Export All Records", color = GymColors.Text, fontWeight = FontWeight.Bold)
                 }
                 Spacer(Modifier.height(6.dp))
                 Text("Saves every member, photo, plan and payment history to a file.", color = GymColors.TextMuted, fontSize = 12.sp)
@@ -1148,23 +1203,32 @@ fun BackupScreen(vm: MembersViewModel) {
                 Button(
                     onClick = { createDoc.launch("major-gym-backup.json") },
                     colors = ButtonDefaults.buttonColors(containerColor = GymColors.Accent),
-                    modifier = Modifier.fillMaxWidth()
-                ) { Text("Export Backup") }
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.fillMaxWidth().height(44.dp)
+                ) { Text("Export Backup", fontWeight = FontWeight.Bold, color = Color.Black) }
             }
         }
         Spacer(Modifier.height(14.dp))
-        Card(colors = CardDefaults.cardColors(containerColor = GymColors.Surface), modifier = Modifier.fillMaxWidth()) {
+        Card(
+            colors = CardDefaults.cardColors(containerColor = GymColors.SurfaceCard),
+            shape = RoundedCornerShape(16.dp),
+            modifier = Modifier.fillMaxWidth().border(1.dp, GymColors.Border, RoundedCornerShape(16.dp))
+        ) {
             Column(Modifier.padding(16.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Filled.Upload, null, tint = GymColors.Accent, modifier = Modifier.size(16.dp))
+                    Icon(Icons.Filled.Upload, null, tint = GymColors.Accent, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text("Restore Records", color = GymColors.Text, fontWeight = FontWeight.Medium)
+                    Text("Restore Records", color = GymColors.Text, fontWeight = FontWeight.Bold)
                 }
                 Spacer(Modifier.height(6.dp))
                 Text("Reinstalled the app or switched phones? Load your last backup file.", color = GymColors.TextMuted, fontSize = 12.sp)
                 Spacer(Modifier.height(12.dp))
-                OutlinedButton(onClick = { openDoc.launch(arrayOf("application/json")) }, modifier = Modifier.fillMaxWidth()) {
-                    Text("Choose Backup File", color = GymColors.Text)
+                OutlinedButton(
+                    onClick = { openDoc.launch(arrayOf("application/json")) },
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.fillMaxWidth().height(44.dp)
+                ) {
+                    Text("Choose Backup File", color = GymColors.Text, fontWeight = FontWeight.SemiBold)
                 }
             }
         }
@@ -1174,12 +1238,16 @@ fun BackupScreen(vm: MembersViewModel) {
         }
 
         Spacer(Modifier.height(14.dp))
-        Card(colors = CardDefaults.cardColors(containerColor = GymColors.Surface), modifier = Modifier.fillMaxWidth()) {
+        Card(
+            colors = CardDefaults.cardColors(containerColor = GymColors.SurfaceCard),
+            shape = RoundedCornerShape(16.dp),
+            modifier = Modifier.fillMaxWidth().border(1.dp, GymColors.Border, RoundedCornerShape(16.dp))
+        ) {
             Column(Modifier.padding(16.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Filled.Share, null, tint = GymColors.Accent, modifier = Modifier.size(16.dp))
+                    Icon(Icons.Filled.Share, null, tint = GymColors.Accent, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text("Share Backup File", color = GymColors.Text, fontWeight = FontWeight.Medium)
+                    Text("Share Backup File", color = GymColors.Text, fontWeight = FontWeight.Bold)
                 }
                 Spacer(Modifier.height(6.dp))
                 Text(
@@ -1191,8 +1259,8 @@ fun BackupScreen(vm: MembersViewModel) {
 
                 if (latestBackup != null) {
                     val f = latestBackup!!
-                    Column(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(GymColors.Surface2).padding(10.dp)) {
-                        Text(f.name, color = GymColors.Text, fontSize = 11.sp)
+                    Column(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(GymColors.Surface2).padding(10.dp)) {
+                        Text(f.name, color = GymColors.Text, fontSize = 11.sp, fontWeight = FontWeight.Medium)
                         Text(
                             "${formatBackupSize(f.length())} \u00B7 ${formatDate(f.lastModified())} \u00B7 ${formatTimeOfDay(f.lastModified())}",
                             color = GymColors.TextFaint, fontSize = 10.sp, modifier = Modifier.padding(top = 2.dp)
@@ -1218,8 +1286,9 @@ fun BackupScreen(vm: MembersViewModel) {
                     },
                     enabled = !sharing,
                     colors = ButtonDefaults.buttonColors(containerColor = GymColors.Accent, disabledContainerColor = GymColors.Surface2),
-                    modifier = Modifier.fillMaxWidth()
-                ) { Text(if (sharing) "Preparing\u2026" else "Share Backup") }
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.fillMaxWidth().height(44.dp)
+                ) { Text(if (sharing) "Preparing\u2026" else "Share Backup", fontWeight = FontWeight.Bold, color = Color.Black) }
 
                 shareMessage?.let {
                     Text(it, color = GymColors.TextMuted, fontSize = 11.sp, modifier = Modifier.padding(top = 8.dp))

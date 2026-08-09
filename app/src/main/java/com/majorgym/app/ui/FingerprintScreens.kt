@@ -3,9 +3,11 @@ package com.majorgym.app.ui
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
@@ -41,9 +43,7 @@ private fun statusText(status: ScanStatus, detail: String): String = when (statu
 
 /**
  * Enroll (or re-enroll) [member]'s fingerprint on a connected SecuGen USB
- * scanner. Two consecutive good scans of the same finger are required and
- * matched against each other before saving, so a smudged single read never
- * silently becomes the stored template.
+ * scanner.
  */
 @Composable
 fun EnrollFingerprintScreen(member: Member, vm: MembersViewModel, returnTo: Screen, onNavigate: (Screen) -> Unit) {
@@ -57,18 +57,10 @@ fun EnrollFingerprintScreen(member: Member, vm: MembersViewModel, returnTo: Scre
 
     DisposableEffect(Unit) {
         onDispose {
-            // scanner.close() is already fully defensive (no-ops safely when no
-            // device was ever found/opened), but this belt-and-braces catch makes
-            // sure nothing thrown here can ever take the whole screen transition
-            // down with it.
             runCatching { scanner.close() }
         }
     }
 
-    // Handles both the on-screen ← arrow (below) and the hardware/gesture back
-    // button. Without this, system back has no "previous screen" to return to on
-    // this manual-navigation app and falls through to closing the Activity — this
-    // makes it behave identically to tapping ← Back.
     BackHandler(enabled = true) { onNavigate(returnTo) }
 
     fun runScan() {
@@ -95,7 +87,6 @@ fun EnrollFingerprintScreen(member: Member, vm: MembersViewModel, returnTo: Scre
                     status = ScanStatus.CAPTURED
                     val prior = firstScan
                     if (prior == null) {
-                        // First of the two required scans.
                         firstScan = capture.template
                         status = ScanStatus.IDLE
                         detail = "First scan captured. Scan the same finger again to confirm."
@@ -128,60 +119,68 @@ fun EnrollFingerprintScreen(member: Member, vm: MembersViewModel, returnTo: Scre
             modifier = Modifier.padding(top = 20.dp, bottom = 16.dp)
         ) {
             Icon(Icons.Filled.ArrowBack, null, tint = GymColors.Text, modifier = Modifier.clickable { onNavigate(returnTo) })
-            Spacer(Modifier.width(8.dp))
-            Text("ENROLL FINGERPRINT", color = GymColors.Text, fontWeight = FontWeight.Bold, fontSize = 20.sp)
+            Spacer(Modifier.width(10.dp))
+            Text("ENROLL FINGERPRINT", color = GymColors.Text, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, letterSpacing = 0.5.sp)
         }
 
         Column(
-            modifier = Modifier.fillMaxWidth().weight(1f),
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .padding(vertical = 12.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            Text(member.name, color = GymColors.Text, fontSize = 16.sp, fontWeight = FontWeight.Medium)
+            Text(member.name, color = GymColors.Text, fontSize = 18.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(24.dp))
             Box(
                 modifier = Modifier
-                    .size(120.dp)
+                    .size(130.dp)
                     .clip(CircleShape)
-                    .background(if (done) GymColors.Accent else GymColors.Surface)
+                    .background(if (done) GymColors.Accent else GymColors.SurfaceCard)
+                    .border(2.dp, if (done) GymColors.Accent else GymColors.Border, CircleShape)
                     .clickable(enabled = !done) { runScan() },
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     if (done) Icons.Filled.CheckCircle else Icons.Filled.Fingerprint,
                     null,
-                    tint = if (done) Color.White else GymColors.Accent,
-                    modifier = Modifier.size(56.dp)
+                    tint = if (done) Color.Black else GymColors.Accent,
+                    modifier = Modifier.size(64.dp)
                 )
             }
-            Spacer(Modifier.height(20.dp))
+            Spacer(Modifier.height(24.dp))
             Text(
-                if (done) "Fingerprint enrolled" else statusText(status, detail),
-                color = GymColors.Text, fontSize = 14.sp, fontWeight = FontWeight.Medium
+                if (done) "Fingerprint enrolled successfully" else statusText(status, detail),
+                color = GymColors.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold
             )
             if (!done && detail.isNotBlank() && status != ScanStatus.FAILED) {
                 Spacer(Modifier.height(6.dp))
-                Text(detail, color = GymColors.TextMuted, fontSize = 12.sp)
+                Text(detail, color = GymColors.TextMuted, fontSize = 13.sp)
             }
             if (!done) {
                 Spacer(Modifier.height(28.dp))
                 Button(
                     onClick = { runScan() },
                     enabled = status != ScanStatus.OPENING && status != ScanStatus.WAITING,
-                    colors = ButtonDefaults.buttonColors(containerColor = GymColors.Accent)
+                    colors = ButtonDefaults.buttonColors(containerColor = GymColors.Accent),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.height(48.dp)
                 ) {
-                    Text(if (firstScan == null) "Start Scan" else "Scan Again to Confirm")
+                    Text(if (firstScan == null) "Start Scan" else "Scan Again to Confirm", fontWeight = FontWeight.Bold, color = Color.Black)
                 }
             }
         }
 
         Button(
             onClick = { onNavigate(returnTo) },
-            modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = if (done) GymColors.Accent else GymColors.Surface)
+            modifier = Modifier.fillMaxWidth().height(50.dp).padding(bottom = 16.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = if (done) GymColors.Accent else GymColors.SurfaceCard),
+            shape = RoundedCornerShape(12.dp)
         ) {
-            Text(if (done) "Done" else "Cancel", color = if (done) Color.White else GymColors.TextMuted)
+            Text(if (done) "Done" else "Cancel", color = if (done) Color.Black else GymColors.TextMuted, fontWeight = FontWeight.Bold)
         }
     }
 }
+
 
