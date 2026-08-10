@@ -58,6 +58,15 @@ fun rememberKioskCoordinator(
     val currentPaused by rememberUpdatedState(paused)
     val currentMembers by rememberUpdatedState(members)
 
+    // Fires the moment `paused` flips, instead of waiting for the next poll
+    // tick below (up to SERVICE_RETRY_MS late) — that gap was part of why
+    // enrollment used to race the background scanner for the USB device.
+    LaunchedEffect(paused) {
+        if (paused) {
+            FingerprintKioskService.requestStop(context)
+        }
+    }
+
     LaunchedEffect(Unit) {
         while (isActive) {
             if (currentPaused) {

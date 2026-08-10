@@ -10,6 +10,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.IBinder
+import android.util.Log
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.lifecycle.Lifecycle
@@ -20,15 +21,18 @@ import com.majorgym.app.data.FingerprintScanner
 import com.majorgym.app.data.Member
 import com.majorgym.app.data.MemberStatus
 import com.majorgym.app.data.statusOf
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
+private const val TAG = "FingerprintKioskSvc"
 private const val MATCHED_DISPLAY_MS = 3000L
 private const val NOT_RECOGNIZED_DISPLAY_MS = 1500L
 private const val LISTEN_SLICE_MS = 4000
@@ -105,72 +109,103 @@ class FingerprintKioskService : Service() {
         val fp = FingerprintScanner(this@FingerprintKioskService)
         scanner = fp
 
-        if (fp.open() !is FingerprintScanner.OpenResult.Success) {
+        Log.d(TAG, "SCANNER_INIT_START background loop")
+        val openResult = fp.open()
+        if (openResult !is FingerprintScanner.OpenResult.Success) {
+            Log.w(TAG, "SCANNER_OPEN_FAILED background loop result=$openResult")
             fp.close()
             scanner = null
             stopForegroundCompat()
             stopSelf()
             return
         }
+        Log.d(TAG, "SCANNER_BACKGROUND_SCAN_START")
+        // Claim ownership only once the device is actually open, and release it
+        // in the finally block below — no matter whether the loop exits
+        // normally, hits an SDK error, or is cancelled (e.g. enrollment asked
+        // us to stop). Enrollment waits on this via ScannerOwnership before it
+        // ever opens its own scanner, so the two are never open concurrently.
+        ScannerOwnership.acquire(ScannerOwnership.Owner.KIOSK)
 
-        // Feature 1: keep the enrolled-members list in memory, updated reactively
-        // whenever it changes in the database, instead of querying Room fresh on
-        // every single scan attempt.
-        val cacheJob = launch {
-            runCatching {
-                AppDatabase.get(applicationContext).memberDao().getAll().collect { list ->
-                    enrolledCache = list.filter { it.fingerprintTemplate != null }
-                        .sortedByDescending { it.lastAttendanceMillis ?: 0L }
+        var cacheJob: Job? = null
+        try {
+            // Feature 1: keep the enrolled-members list in memory, updated reactively
+            // whenever it changes in the database, instead of querying Room fresh on
+            // every single scan attempt.
+            cacheJob = launch {
+                runCatching {
+                    AppDatabase.get(applicationContext).memberDao().getAll().collect { list ->
+                        enrolledCache = list.filter { it.fingerprintTemplate != null }
+                            .sortedByDescending { it.lastAttendanceMillis ?: 0L }
+                    }
                 }
             }
-        }
 
-        while (isActive) {
-            when (val capture = fp.captureTemplate(timeoutMs = LISTEN_SLICE_MS)) {
-                is FingerprintScanner.CaptureResult.Success -> {
-                    var matched: Member? = null
-                    for (m in enrolledCache) {
-                        if (fp.match(m.fingerprintTemplate!!, capture.template)) {
-                            matched = m
-                            break
+            while (isActive) {
+                when (val capture = fp.captureTemplate(timeoutMs = LISTEN_SLICE_MS)) {
+                    is FingerprintScanner.CaptureResult.Success -> {
+                        var matched: Member? = null
+                        for (m in enrolledCache) {
+                            if (fp.match(m.fingerprintTemplate!!, capture.template)) {
+                                matched = m
+                                break
+                            }
                         }
-                    }
 
-                    if (matched != null) {
-                        val audioStatus = membershipAudioStatusOf(matched.expiryMillis)
-                        val expired = statusOf(matched.expiryMillis) == MemberStatus.EXPIRED
-                        KioskSound.playSuccess()
-                        KioskBus.publish(KioskEvent(matched.id, recognized = true, expired = expired))
-                        // Membership-status audio: only ever reached on a genuine
-                        // successful match, using the exact same matched Member used
-                        // for the overlay display above — never a separate lookup.
-                        MembershipAudioPlayer.play(applicationContext, audioStatus)
-                        notifyIfBackgrounded()
-                        delay(MATCHED_DISPLAY_MS)
-                    } else {
-                        KioskSound.playError()
-                        KioskBus.publish(KioskEvent(null, recognized = false, expired = false))
-                        notifyIfBackgrounded()
-                        delay(NOT_RECOGNIZED_DISPLAY_MS)
+                        if (matched != null) {
+                            val audioStatus = membershipAudioStatusOf(matched.expiryMillis)
+                            val expired = statusOf(matched.expiryMillis) == MemberStatus.EXPIRED
+                            KioskSound.playSuccess()
+                            KioskBus.publish(KioskEvent(matched.id, recognized = true, expired = expired))
+                            // Membership-status audio: only ever reached on a genuine
+                            // successful match, using the exact same matched Member used
+                            // for the overlay display above — never a separate lookup.
+                            MembershipAudioPlayer.play(applicationContext, audioStatus)
+                            notifyIfBackgrounded()
+                            delay(MATCHED_DISPLAY_MS)
+                        } else {
+                            KioskSound.playError()
+                            KioskBus.publish(KioskEvent(null, recognized = false, expired = false))
+                            notifyIfBackgrounded()
+                            delay(NOT_RECOGNIZED_DISPLAY_MS)
+                        }
+                        KioskBus.publish(null)
                     }
-                    KioskBus.publish(null)
-                }
-                FingerprintScanner.CaptureResult.Timeout -> {
-                    // Nobody scanned during this slice — keep listening silently.
-                }
-                is FingerprintScanner.CaptureResult.Error -> {
-                    // Likely unplugged mid-listen. Stop cleanly; MainActivity's
-                    // retry loop will bring the service back once reconnected.
-                    break
+                    FingerprintScanner.CaptureResult.Timeout -> {
+                        // Nobody scanned during this slice — keep listening silently.
+                    }
+                    is FingerprintScanner.CaptureResult.Error -> {
+                        // Likely unplugged mid-listen (or a genuine SDK exception,
+                        // which FingerprintScanner already caught and logged under
+                        // SCANNER_EXCEPTION). Stop cleanly; MainActivity's retry
+                        // loop will bring the service back once reconnected.
+                        Log.w(TAG, "SCANNER_CAPTURE_FAILED background loop, stopping")
+                        break
+                    }
                 }
             }
+        } catch (e: CancellationException) {
+            // Expected path when enrollment (or task removal) asks us to stop —
+            // fall through to the finally block to actually release the device.
+            throw e
+        } catch (e: Throwable) {
+            Log.e(TAG, "SCANNER_EXCEPTION in background loop: ${e.message}", e)
+        } finally {
+            // This finally block is the ONLY place the background scanner is ever
+            // closed, and it always runs on this loop's own coroutine — never
+            // from onStartCommand/onDestroy's calling thread. That was the root
+            // cause of the enrollment crash: the service used to close the
+            // native device directly from the command-handling thread while this
+            // loop might still be mid-capture on the IO dispatcher, i.e. two
+            // threads touching the same native SecuGen handle at once.
+            cacheJob?.cancel()
+            fp.close()
+            Log.d(TAG, "SCANNER_BACKGROUND_SCAN_STOP")
+            scanner = null
+            ScannerOwnership.release(ScannerOwnership.Owner.KIOSK)
+            stopForegroundCompat()
+            stopSelf()
         }
-
-        cacheJob.cancel()
-        fp.close()
-        scanner = null
-        stopForegroundCompat()
-        stopSelf()
     }
 
     /** Swiping the app off the Recent Apps list — stop scanning entirely, per spec. */
@@ -180,9 +215,21 @@ class FingerprintKioskService : Service() {
     }
 
     override fun onDestroy() {
-        loopJob?.cancel()
+        val job = loopJob
+        loopJob = null
+        // cancelAndJoin (not a bare cancel()) so runLoop's own finally block —
+        // running on its own coroutine, not this one — gets a chance to
+        // actually close the device before this Service object goes away.
+        runCatching {
+            kotlinx.coroutines.runBlocking {
+                kotlinx.coroutines.withTimeoutOrNull(1500) { job?.cancelAndJoin() }
+            }
+        }
+        // Fallback only: if the loop never started (no scanner was ever open)
+        // or the join above timed out, make sure nothing is left dangling.
         runCatching { scanner?.close() }
         scanner = null
+        ScannerOwnership.release(ScannerOwnership.Owner.KIOSK)
         MembershipAudioPlayer.stop()
         serviceScope.cancel()
         super.onDestroy()
@@ -190,14 +237,30 @@ class FingerprintKioskService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    /**
+     * Cancels the listening loop and waits (on the service's own IO scope, not
+     * the caller's thread) for its finally block to actually release the
+     * device before tearing down the foreground notification/service. Never
+     * closes the scanner directly from here — see [runLoop]'s finally comment.
+     */
     private fun stopListeningAndSelf() {
-        loopJob?.cancel()
-        runCatching { scanner?.close() }
-        scanner = null
-        MembershipAudioPlayer.stop()
+        val job = loopJob
+        loopJob = null
         KioskBus.publish(null)
-        stopForegroundCompat()
-        stopSelf()
+        if (job == null) {
+            // Nothing was ever running (e.g. no scanner was connected) — nothing
+            // to wait on, just tear down defensively.
+            MembershipAudioPlayer.stop()
+            stopForegroundCompat()
+            stopSelf()
+            return
+        }
+        serviceScope.launch {
+            job.cancelAndJoin()
+            MembershipAudioPlayer.stop()
+            stopForegroundCompat()
+            stopSelf()
+        }
     }
 
     private fun stopForegroundCompat() {

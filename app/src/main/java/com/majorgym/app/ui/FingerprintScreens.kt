@@ -1,5 +1,6 @@
 package com.majorgym.app.ui
 
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -25,14 +26,26 @@ import androidx.compose.ui.unit.sp
 import com.majorgym.app.MembersViewModel
 import com.majorgym.app.Screen
 import com.majorgym.app.data.*
+import com.majorgym.app.kiosk.FingerprintKioskService
+import com.majorgym.app.kiosk.ScannerOwnership
 import kotlinx.coroutines.launch
+
+private const val TAG = "EnrollFingerprint"
+
+/** How long to wait for the background kiosk scanner to actually release the
+ *  USB device before giving up and trying to open anyway. This is the piece
+ *  that was missing before: enrollment used to open its own scanner the
+ *  instant the user tapped Scan, with no guarantee the background loop (which
+ *  can be mid-capture on the same physical device) had let go of it yet. */
+private const val RELEASE_WAIT_MS = 5000L
 
 /** Enroll/check-in status text used only by the enrollment flow now (kiosk mode
  *  has its own separate state machine in KioskOverlay.kt). */
-private enum class ScanStatus { IDLE, OPENING, WAITING, CAPTURED, MATCHED, NOT_MATCHED, FAILED }
+private enum class ScanStatus { IDLE, RELEASING, OPENING, WAITING, CAPTURED, MATCHED, NOT_MATCHED, FAILED }
 
 private fun statusText(status: ScanStatus, detail: String): String = when (status) {
     ScanStatus.IDLE -> "Ready to scan"
+    ScanStatus.RELEASING -> "Stopping background scanner\u2026"
     ScanStatus.OPENING -> "Connecting to scanner\u2026"
     ScanStatus.WAITING -> "Place finger on the scanner\u2026"
     ScanStatus.CAPTURED -> "Captured"
@@ -56,14 +69,28 @@ fun EnrollFingerprintScreen(member: Member, vm: MembersViewModel, returnTo: Scre
     var detail by remember { mutableStateOf("") }
     var firstScan by remember { mutableStateOf<ByteArray?>(null) }
     var done by remember { mutableStateOf(false) }
+    // Guards against a second tap starting a new scan while one is already
+    // running — the button is disabled during OPENING/WAITING, but this also
+    // covers the RELEASING wait before that state is even set.
+    var scanInFlight by remember { mutableStateOf(false) }
 
     DisposableEffect(Unit) {
+        // Tell the background kiosk loop to stop the moment this screen is
+        // entered — don't wait for the first tap on Scan. MainActivity/
+        // KioskOverlay also does this reactively via `paused`, but doing it
+        // here too means the release clock starts as early as possible.
+        FingerprintKioskService.requestStop(activity)
         onDispose {
             // scanner.close() is already fully defensive (no-ops safely when no
-            // device was ever found/opened), but this belt-and-braces catch makes
-            // sure nothing thrown here can ever take the whole screen transition
+            // device was ever found/opened, and safe even if a capture is still
+            // in flight — see FingerprintScanner), but this belt-and-braces catch
+            // makes sure nothing thrown here can ever take the screen transition
             // down with it.
             runCatching { scanner.close() }
+            ScannerOwnership.release(ScannerOwnership.Owner.ENROLLMENT)
+            // Let the background scanner resume now that we're done with the
+            // device — otherwise it would sit idle until the next poll tick.
+            FingerprintKioskService.requestStart(activity)
         }
     }
 
@@ -74,52 +101,88 @@ fun EnrollFingerprintScreen(member: Member, vm: MembersViewModel, returnTo: Scre
     BackHandler(enabled = true) { onNavigate(returnTo) }
 
     fun runScan() {
+        if (scanInFlight) return
+        scanInFlight = true
         scope.launch {
-            status = ScanStatus.OPENING
-            when (val open = scanner.open()) {
-                is FingerprintScanner.OpenResult.Success -> {}
-                FingerprintScanner.OpenResult.DeviceNotFound -> {
-                    status = ScanStatus.FAILED; detail = "No SecuGen scanner found. Plug it in via USB and try again."
-                    return@launch
+            // Wrapping the whole flow: any unexpected exception (SDK-level or
+            // otherwise) lands here instead of propagating up and taking the
+            // screen/Activity down with it — which is what used to send the app
+            // back to Home whenever a finger touched the scanner mid-conflict.
+            try {
+                status = ScanStatus.RELEASING
+                detail = ""
+                FingerprintKioskService.requestStop(activity)
+                val released = ScannerOwnership.awaitReleased(RELEASE_WAIT_MS)
+                if (!released) {
+                    Log.w(TAG, "SCANNER_OPEN_FAILED background scanner did not release in time, trying anyway")
                 }
-                FingerprintScanner.OpenResult.PermissionDenied -> {
-                    status = ScanStatus.FAILED; detail = "USB permission was denied for the scanner."
-                    return@launch
-                }
-                is FingerprintScanner.OpenResult.Error -> {
-                    status = ScanStatus.FAILED; detail = "Scanner error (${open.code})."
-                    return@launch
-                }
-            }
-            status = ScanStatus.WAITING
-            when (val capture = scanner.captureTemplate()) {
-                is FingerprintScanner.CaptureResult.Success -> {
-                    status = ScanStatus.CAPTURED
-                    val prior = firstScan
-                    if (prior == null) {
-                        // First of the two required scans.
-                        firstScan = capture.template
-                        status = ScanStatus.IDLE
-                        detail = "First scan captured. Scan the same finger again to confirm."
-                    } else {
-                        val matched = scanner.match(prior, capture.template)
-                        if (matched) {
-                            vm.saveFingerprintTemplate(member, capture.template)
-                            status = ScanStatus.MATCHED
-                            done = true
-                        } else {
-                            status = ScanStatus.NOT_MATCHED
-                            detail = "The two scans didn't match. Starting over \u2014 scan the same finger twice."
-                            firstScan = null
-                        }
+
+                status = ScanStatus.OPENING
+                Log.d(TAG, "SCANNER_ENROLL_START")
+                when (val open = scanner.open()) {
+                    is FingerprintScanner.OpenResult.Success -> {
+                        ScannerOwnership.acquire(ScannerOwnership.Owner.ENROLLMENT)
+                    }
+                    FingerprintScanner.OpenResult.DeviceNotFound -> {
+                        status = ScanStatus.FAILED; detail = "No SecuGen scanner found. Plug it in via USB and try again."
+                        return@launch
+                    }
+                    FingerprintScanner.OpenResult.PermissionDenied -> {
+                        status = ScanStatus.FAILED; detail = "USB permission was denied for the scanner."
+                        return@launch
+                    }
+                    FingerprintScanner.OpenResult.Busy -> {
+                        status = ScanStatus.FAILED
+                        detail = "Fingerprint scanner unavailable. Please reconnect the scanner."
+                        return@launch
+                    }
+                    is FingerprintScanner.OpenResult.Error -> {
+                        status = ScanStatus.FAILED; detail = "Scanner error (${open.code})."
+                        return@launch
                     }
                 }
-                FingerprintScanner.CaptureResult.Timeout -> {
-                    status = ScanStatus.FAILED; detail = "No finger detected \u2014 try again."
+                status = ScanStatus.WAITING
+                when (val capture = scanner.captureTemplate()) {
+                    is FingerprintScanner.CaptureResult.Success -> {
+                        status = ScanStatus.CAPTURED
+                        Log.d(TAG, "SCANNER_TEMPLATE_SUCCESS")
+                        val prior = firstScan
+                        if (prior == null) {
+                            // First of the two required scans.
+                            firstScan = capture.template
+                            status = ScanStatus.IDLE
+                            detail = "First scan captured. Scan the same finger again to confirm."
+                        } else {
+                            val matched = scanner.match(prior, capture.template)
+                            if (matched) {
+                                vm.saveFingerprintTemplate(member, capture.template)
+                                status = ScanStatus.MATCHED
+                                Log.d(TAG, "SCANNER_ENROLL_SUCCESS")
+                                done = true
+                            } else {
+                                status = ScanStatus.NOT_MATCHED
+                                detail = "The two scans didn't match. Starting over \u2014 scan the same finger twice."
+                                firstScan = null
+                            }
+                        }
+                    }
+                    FingerprintScanner.CaptureResult.Timeout -> {
+                        status = ScanStatus.FAILED; detail = "No finger detected \u2014 try again."
+                    }
+                    is FingerprintScanner.CaptureResult.Error -> {
+                        Log.w(TAG, "SCANNER_ENROLL_FAILED code=${capture.code}")
+                        status = ScanStatus.FAILED; detail = "Capture error (${capture.code})."
+                    }
                 }
-                is FingerprintScanner.CaptureResult.Error -> {
-                    status = ScanStatus.FAILED; detail = "Capture error (${capture.code})."
-                }
+            } catch (e: Throwable) {
+                // Never let a scanner exception crash/navigate this screen away.
+                // Do NOT make this a fake fix by silently swallowing it: log it
+                // with full detail and surface it to the user, but stay put.
+                Log.e(TAG, "SCANNER_EXCEPTION in enrollment flow: ${e.message}", e)
+                status = ScanStatus.FAILED
+                detail = "Scanner error. Please try again."
+            } finally {
+                scanInFlight = false
             }
         }
     }
@@ -150,7 +213,7 @@ fun EnrollFingerprintScreen(member: Member, vm: MembersViewModel, returnTo: Scre
                     .clip(CircleShape)
                     .background(if (done) GymColors.Accent else GymColors.SurfaceCard)
                     .border(2.dp, if (done) GymColors.Accent else GymColors.Border, CircleShape)
-                    .clickable(enabled = !done) { runScan() },
+                    .clickable(enabled = !done && !scanInFlight) { runScan() },
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
@@ -173,7 +236,7 @@ fun EnrollFingerprintScreen(member: Member, vm: MembersViewModel, returnTo: Scre
                 Spacer(Modifier.height(28.dp))
                 Button(
                     onClick = { runScan() },
-                    enabled = status != ScanStatus.OPENING && status != ScanStatus.WAITING,
+                    enabled = !scanInFlight,
                     colors = ButtonDefaults.buttonColors(containerColor = GymColors.Accent),
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.height(48.dp)
