@@ -28,6 +28,7 @@ import com.majorgym.app.Screen
 import com.majorgym.app.data.*
 import com.majorgym.app.kiosk.FingerprintKioskService
 import com.majorgym.app.kiosk.ScannerOwnership
+import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -96,16 +97,32 @@ fun EnrollFingerprintScreen(member: Member, vm: MembersViewModel, returnTo: Scre
         // here too means the release clock starts as early as possible.
         FingerprintKioskService.requestStop(activity)
         onDispose {
-            // scanner.close() is already fully defensive (no-ops safely when no
-            // device was ever found/opened, and safe even if a capture is still
-            // in flight — see FingerprintScanner), but this belt-and-braces catch
-            // makes sure nothing thrown here can ever take the screen transition
-            // down with it.
-            runCatching { scanner.close() }
-            ScannerOwnership.release(ScannerOwnership.Owner.ENROLLMENT)
-            // Let the background scanner resume now that we're done with the
-            // device — otherwise it would sit idle until the next poll tick.
-            FingerprintKioskService.requestStart(activity)
+            // IMPORTANT: this must use closeAndAwait(), not close(). close() is
+            // fire-and-forget — it kicks off the native CloseDevice()/Close()
+            // calls on a background scope and returns immediately, before the
+            // physical USB device is actually free. Releasing ScannerOwnership
+            // and restarting the kiosk service right after a plain close() lets
+            // the kiosk try to open the very same device while this screen's own
+            // close is still mid-flight on another thread — a real race for the
+            // physical device, exactly like the one already fixed on the kiosk
+            // side (see FingerprintKioskService's use of closeAndAwait() and its
+            // doc comment). That race is intermittent, not constant — it depends
+            // on USB/OS timing — which is why it only showed up occasionally
+            // (e.g. on the 13th enrollment in a row) rather than every time.
+            //
+            // onDispose can't suspend, so the await has to happen on a scope that
+            // outlives this composable — vm's viewModelScope survives navigating
+            // away from this screen (unlike rememberCoroutineScope(), which gets
+            // cancelled the instant onDispose runs). Ownership release and the
+            // kiosk restart now only happen once the device is genuinely free.
+            vm.viewModelScope.launch {
+                runCatching { scanner.closeAndAwait() }
+                    .onFailure { Log.e(TAG, "SCANNER_EXCEPTION during closeAndAwait in onDispose: ${it.message}", it) }
+                ScannerOwnership.release(ScannerOwnership.Owner.ENROLLMENT)
+                // Let the background scanner resume now that we're done with the
+                // device — otherwise it would sit idle until the next poll tick.
+                FingerprintKioskService.requestStart(activity)
+            }
         }
     }
 
