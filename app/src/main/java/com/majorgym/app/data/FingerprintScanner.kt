@@ -118,6 +118,29 @@ class FingerprintScanner(private val appContext: Context) {
      */
     suspend fun open(): OpenResult = withContext(Dispatchers.IO) {
         callMutex.withLock {
+            // Defensive cleanup: if this instance still has a handle open from a
+            // previous open() call (a caller re-opening for a second scan instead
+            // of reusing the session, or any other misuse), release it fully
+            // before touching the SDK again. Without this, the second open()
+            // tries to Init()/OpenDevice() the same physical USB device on top
+            // of a handle that's still live — which doesn't fail cleanly, it can
+            // crash the native SDK outright and take the whole app down with it.
+            if (sgfplib != null) {
+                Log.w(TAG, "SCANNER_REOPEN stale handle found on open() — releasing it first")
+                val stale = sgfplib
+                if (deviceOpened) {
+                    runCatching { stale?.CloseDevice() }
+                        .onFailure { Log.e(TAG, "SCANNER_EXCEPTION closing stale device: ${it.message}", it) }
+                    deviceOpened = false
+                }
+                if (initialized) {
+                    runCatching { stale?.Close() }
+                        .onFailure { Log.e(TAG, "SCANNER_EXCEPTION closing stale handle: ${it.message}", it) }
+                    initialized = false
+                }
+                sgfplib = null
+            }
+
             Log.d(TAG, "SCANNER_INIT_START")
             val lib = runCatching {
                 JSGFPLib(appContext, appContext.getSystemService(Context.USB_SERVICE) as UsbManager)

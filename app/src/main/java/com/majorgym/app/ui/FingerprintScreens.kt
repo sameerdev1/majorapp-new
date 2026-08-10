@@ -73,6 +73,12 @@ fun EnrollFingerprintScreen(member: Member, vm: MembersViewModel, returnTo: Scre
     // running — the button is disabled during OPENING/WAITING, but this also
     // covers the RELEASING wait before that state is even set.
     var scanInFlight by remember { mutableStateOf(false) }
+    // True once scanner.open() has succeeded for this enrollment session.
+    // Enrollment needs two scans of the same finger, but the scanner should
+    // only be opened ONCE for both of them — re-opening for the second scan
+    // (instead of reusing the already-open device) is what left a stale
+    // native handle behind and crashed the app on the confirm scan.
+    var scannerOpen by remember { mutableStateOf(false) }
 
     DisposableEffect(Unit) {
         // Tell the background kiosk loop to stop the moment this screen is
@@ -109,36 +115,43 @@ fun EnrollFingerprintScreen(member: Member, vm: MembersViewModel, returnTo: Scre
             // screen/Activity down with it — which is what used to send the app
             // back to Home whenever a finger touched the scanner mid-conflict.
             try {
-                status = ScanStatus.RELEASING
-                detail = ""
-                FingerprintKioskService.requestStop(activity)
-                val released = ScannerOwnership.awaitReleased(RELEASE_WAIT_MS)
-                if (!released) {
-                    Log.w(TAG, "SCANNER_OPEN_FAILED background scanner did not release in time, trying anyway")
-                }
+                // Only go through the release-wait + open dance once per
+                // session. On the second (confirm) scan, scannerOpen is
+                // already true, so we skip straight to capture and reuse the
+                // same open device instead of opening it a second time.
+                if (!scannerOpen) {
+                    status = ScanStatus.RELEASING
+                    detail = ""
+                    FingerprintKioskService.requestStop(activity)
+                    val released = ScannerOwnership.awaitReleased(RELEASE_WAIT_MS)
+                    if (!released) {
+                        Log.w(TAG, "SCANNER_OPEN_FAILED background scanner did not release in time, trying anyway")
+                    }
 
-                status = ScanStatus.OPENING
-                Log.d(TAG, "SCANNER_ENROLL_START")
-                when (val open = scanner.open()) {
-                    is FingerprintScanner.OpenResult.Success -> {
-                        ScannerOwnership.acquire(ScannerOwnership.Owner.ENROLLMENT)
-                    }
-                    FingerprintScanner.OpenResult.DeviceNotFound -> {
-                        status = ScanStatus.FAILED; detail = "No SecuGen scanner found. Plug it in via USB and try again."
-                        return@launch
-                    }
-                    FingerprintScanner.OpenResult.PermissionDenied -> {
-                        status = ScanStatus.FAILED; detail = "USB permission was denied for the scanner."
-                        return@launch
-                    }
-                    FingerprintScanner.OpenResult.Busy -> {
-                        status = ScanStatus.FAILED
-                        detail = "Fingerprint scanner unavailable. Please reconnect the scanner."
-                        return@launch
-                    }
-                    is FingerprintScanner.OpenResult.Error -> {
-                        status = ScanStatus.FAILED; detail = "Scanner error (${open.code})."
-                        return@launch
+                    status = ScanStatus.OPENING
+                    Log.d(TAG, "SCANNER_ENROLL_START")
+                    when (val open = scanner.open()) {
+                        is FingerprintScanner.OpenResult.Success -> {
+                            ScannerOwnership.acquire(ScannerOwnership.Owner.ENROLLMENT)
+                            scannerOpen = true
+                        }
+                        FingerprintScanner.OpenResult.DeviceNotFound -> {
+                            status = ScanStatus.FAILED; detail = "No SecuGen scanner found. Plug it in via USB and try again."
+                            return@launch
+                        }
+                        FingerprintScanner.OpenResult.PermissionDenied -> {
+                            status = ScanStatus.FAILED; detail = "USB permission was denied for the scanner."
+                            return@launch
+                        }
+                        FingerprintScanner.OpenResult.Busy -> {
+                            status = ScanStatus.FAILED
+                            detail = "Fingerprint scanner unavailable. Please reconnect the scanner."
+                            return@launch
+                        }
+                        is FingerprintScanner.OpenResult.Error -> {
+                            status = ScanStatus.FAILED; detail = "Scanner error (${open.code})."
+                            return@launch
+                        }
                     }
                 }
                 status = ScanStatus.WAITING

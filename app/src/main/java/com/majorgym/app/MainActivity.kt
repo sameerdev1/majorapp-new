@@ -66,9 +66,17 @@ class MainActivity : ComponentActivity() {
                 // once a scanner is actually detected (service handles that check), and
                 // only for as long as the app process is alive (Home button doesn't stop
                 // it; swiping the app out of Recent Apps does — see the service for why).
-                // Paused only while EnrollFingerprint has its own exclusive scanner
-                // session open (the USB device can only be held by one connection).
-                val kioskPaused = screen is Screen.EnrollFingerprint
+                // Paused for the entire add-member-through-enrollment flow, not just
+                // while EnrollFingerprint itself is on screen: the background loop can
+                // still grab the USB device the instant Add is opened, well before the
+                // user ever reaches the fingerprint step, causing the same "scanner
+                // unavailable" race. So this stays paused from Add through Registered
+                // through EnrollFingerprint, and only resumes once the user lands
+                // somewhere outside that flow (Dashboard, Profile, Members, etc.).
+                val kioskPaused = when (screen) {
+                    Screen.Add, is Screen.Edit, is Screen.Registered, is Screen.EnrollFingerprint -> true
+                    else -> false
+                }
                 val kioskState by rememberKioskCoordinator(
                     context = this@MainActivity,
                     members = members,
