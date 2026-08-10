@@ -198,8 +198,18 @@ class FingerprintKioskService : Service() {
             // native device directly from the command-handling thread while this
             // loop might still be mid-capture on the IO dispatcher, i.e. two
             // threads touching the same native SecuGen handle at once.
+            //
+            // closeAndAwait() (not close()) is deliberate here: this suspends
+            // until the native device is ACTUALLY released before we announce
+            // ownership as free. The old fire-and-forget close() returned
+            // instantly while the real release kept running in the background —
+            // so ScannerOwnership.release() below used to fire while the device
+            // was still physically open, letting enrollment race in and open
+            // its own connection against a device the kiosk hadn't actually let
+            // go of yet. That race, not any navigation-timing issue, was the
+            // real source of "Fingerprint scanner unavailable" / crashes.
             cacheJob?.cancel()
-            fp.close()
+            fp.closeAndAwait()
             Log.d(TAG, "SCANNER_BACKGROUND_SCAN_STOP")
             scanner = null
             ScannerOwnership.release(ScannerOwnership.Owner.KIOSK)

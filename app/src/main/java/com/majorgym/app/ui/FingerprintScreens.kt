@@ -28,16 +28,25 @@ import com.majorgym.app.Screen
 import com.majorgym.app.data.*
 import com.majorgym.app.kiosk.FingerprintKioskService
 import com.majorgym.app.kiosk.ScannerOwnership
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private const val TAG = "EnrollFingerprint"
 
 /** How long to wait for the background kiosk scanner to actually release the
- *  USB device before giving up and trying to open anyway. This is the piece
- *  that was missing before: enrollment used to open its own scanner the
- *  instant the user tapped Scan, with no guarantee the background loop (which
- *  can be mid-capture on the same physical device) had let go of it yet. */
-private const val RELEASE_WAIT_MS = 5000L
+ *  USB device before giving up and trying to open anyway. The kiosk's own
+ *  capture call blocks in up-to-4-second slices (LISTEN_SLICE_MS in
+ *  FingerprintKioskService) and can't notice a stop request until that slice
+ *  returns, so this needs real headroom above that — 5s was cutting it too
+ *  close and let enrollment "give up waiting" while the kiosk was still
+ *  mid-release, which is what produced "scanner unavailable" here. */
+private const val RELEASE_WAIT_MS = 7000L
+
+/** A single OpenDevice() attempt can fail transiently right when the USB
+ *  device is changing hands, even with ownership already confirmed free —
+ *  so a Busy result gets a few quick retries before it's treated as final. */
+private const val OPEN_MAX_ATTEMPTS = 3
+private const val OPEN_RETRY_DELAY_MS = 400L
 
 /** Enroll/check-in status text used only by the enrollment flow now (kiosk mode
  *  has its own separate state machine in KioskOverlay.kt). */
@@ -130,7 +139,20 @@ fun EnrollFingerprintScreen(member: Member, vm: MembersViewModel, returnTo: Scre
 
                     status = ScanStatus.OPENING
                     Log.d(TAG, "SCANNER_ENROLL_START")
-                    when (val open = scanner.open()) {
+                    // A single OpenDevice() attempt can still fail transiently
+                    // right after the USB device changes hands (OS/SDK-level
+                    // settling time) even once ownership is genuinely free —
+                    // so retry a few times with a short backoff before
+                    // surfacing an error, instead of failing on the first try.
+                    var open: FingerprintScanner.OpenResult = scanner.open()
+                    var openAttempt = 1
+                    while (open is FingerprintScanner.OpenResult.Busy && openAttempt < OPEN_MAX_ATTEMPTS) {
+                        Log.w(TAG, "SCANNER_OPEN_RETRY attempt=$openAttempt")
+                        delay(OPEN_RETRY_DELAY_MS * openAttempt)
+                        open = scanner.open()
+                        openAttempt++
+                    }
+                    when (open) {
                         is FingerprintScanner.OpenResult.Success -> {
                             ScannerOwnership.acquire(ScannerOwnership.Owner.ENROLLMENT)
                             scannerOpen = true

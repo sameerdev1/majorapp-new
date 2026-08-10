@@ -322,31 +322,64 @@ class FingerprintScanner(private val appContext: Context) {
      * Closing the native object out from under an in-progress native call on
      * another thread is exactly the kind of cross-thread access that was
      * crashing enrollment — this makes close() wait its turn instead.
+     *
+     * IMPORTANT: this returns before the native device is actually released —
+     * it only guarantees the release will *eventually* happen. A caller that
+     * needs to know the device is truly free before doing anything else (e.g.
+     * announcing ownership released so a different owner can open it) must use
+     * [closeAndAwait] instead — see that function's doc for why this distinction
+     * is exactly what was still causing "scanner unavailable"/crashes even
+     * after enrollment started pausing the background scanner earlier.
      */
     fun close() {
         closeScope.launch {
-            callMutex.withLock {
-                val lib = sgfplib
-                if (lib != null) {
-                    if (deviceOpened) {
-                        runCatching { lib.CloseDevice() }
-                            .onFailure { Log.e(TAG, "SCANNER_EXCEPTION during CloseDevice: ${it.message}", it) }
-                        deviceOpened = false
-                    }
-                    if (initialized) {
-                        runCatching { lib.Close() }
-                            .onFailure { Log.e(TAG, "SCANNER_EXCEPTION during Close: ${it.message}", it) }
-                        initialized = false
-                    }
-                }
-                sgfplib = null
-                if (receiverRegistered) {
-                    runCatching { appContext.unregisterReceiver(usbReceiver) }
-                    receiverRegistered = false
-                }
-                Log.d(TAG, "SCANNER_RELEASE")
-            }
+            releaseNow()
             closeScope.cancel()
+        }
+    }
+
+    /**
+     * Same release logic as [close], but suspends until the native device is
+     * actually closed instead of firing it off in the background.
+     *
+     * Use this from any caller that is already in a coroutine and needs a real
+     * guarantee the physical USB device is free before proceeding — in
+     * particular [com.majorgym.app.kiosk.FingerprintKioskService], which used
+     * to call [close] (fire-and-forget) and then immediately mark
+     * [com.majorgym.app.kiosk.ScannerOwnership] as released on the very next
+     * line. That released the "ownership" flag before the real native
+     * CloseDevice()/Close() calls had actually finished, so the enrollment
+     * screen could see "released" and try to open its own connection while the
+     * kiosk's close was still physically in progress — a genuine race for the
+     * same USB device, which is what was producing "Fingerprint scanner
+     * unavailable" (and, occasionally, a native-level crash) regardless of how
+     * early enrollment asked the background scanner to stop.
+     */
+    suspend fun closeAndAwait() {
+        releaseNow()
+    }
+
+    private suspend fun releaseNow() {
+        callMutex.withLock {
+            val lib = sgfplib
+            if (lib != null) {
+                if (deviceOpened) {
+                    runCatching { lib.CloseDevice() }
+                        .onFailure { Log.e(TAG, "SCANNER_EXCEPTION during CloseDevice: ${it.message}", it) }
+                    deviceOpened = false
+                }
+                if (initialized) {
+                    runCatching { lib.Close() }
+                        .onFailure { Log.e(TAG, "SCANNER_EXCEPTION during Close: ${it.message}", it) }
+                    initialized = false
+                }
+            }
+            sgfplib = null
+            if (receiverRegistered) {
+                runCatching { appContext.unregisterReceiver(usbReceiver) }
+                receiverRegistered = false
+            }
+            Log.d(TAG, "SCANNER_RELEASE")
         }
     }
 
