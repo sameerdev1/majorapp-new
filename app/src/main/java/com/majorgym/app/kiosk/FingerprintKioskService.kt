@@ -36,7 +36,13 @@ private const val TAG = "FingerprintKioskSvc"
 private const val MATCHED_DISPLAY_MS = 3000L
 private const val NOT_RECOGNIZED_DISPLAY_MS = 1500L
 private const val LISTEN_SLICE_MS = 4000
-private const val CHANNEL_ID = "fingerprint_kiosk"
+/** An isolated capture error is tolerated (see the Error branch in runLoop);
+ *  this many IN A ROW is treated as a genuine disconnect rather than a
+ *  transient SDK/USB hiccup, and actually stops the loop. */
+private const val MAX_CONSECUTIVE_CAPTURE_ERRORS = 5
+private const val CAPTURE_ERROR_RETRY_DELAY_MS = 500L
+private const val ONGOING_CHANNEL_ID = "fingerprint_kiosk_status"
+private const val ALERT_CHANNEL_ID = "fingerprint_kiosk_alert"
 private const val ONGOING_NOTIF_ID = 501
 private const val ALERT_NOTIF_ID = 502
 
@@ -141,9 +147,11 @@ class FingerprintKioskService : Service() {
                 }
             }
 
+            var consecutiveErrors = 0
             while (isActive) {
                 when (val capture = fp.captureTemplate(timeoutMs = LISTEN_SLICE_MS)) {
                     is FingerprintScanner.CaptureResult.Success -> {
+                        consecutiveErrors = 0
                         var matched: Member? = null
                         for (m in enrolledCache) {
                             if (fp.match(m.fingerprintTemplate!!, capture.template)) {
@@ -173,14 +181,30 @@ class FingerprintKioskService : Service() {
                     }
                     FingerprintScanner.CaptureResult.Timeout -> {
                         // Nobody scanned during this slice — keep listening silently.
+                        consecutiveErrors = 0
                     }
                     is FingerprintScanner.CaptureResult.Error -> {
-                        // Likely unplugged mid-listen (or a genuine SDK exception,
-                        // which FingerprintScanner already caught and logged under
-                        // SCANNER_EXCEPTION). Stop cleanly; MainActivity's retry
-                        // loop will bring the service back once reconnected.
-                        Log.w(TAG, "SCANNER_CAPTURE_FAILED background loop, stopping")
-                        break
+                        // A single Error here does NOT necessarily mean the device is
+                        // gone — these budget USB readers routinely throw an isolated
+                        // SDK-level error mid-session (a marginal read, a brief USB
+                        // hiccup) that has nothing to do with the device being
+                        // unplugged. Treating every one of those as fatal used to tear
+                        // the whole service down and force a full re-Init()/OpenDevice()
+                        // cycle every single time — and repeatedly re-initializing this
+                        // SDK is itself what was wearing the scanner into "unavailable,
+                        // please reconnect" after a handful of check-ins, not the errors
+                        // themselves. So: tolerate isolated errors like a Timeout, and
+                        // only actually give up after several land in a row, which is a
+                        // real signal something (e.g. an actual unplug) is wrong.
+                        consecutiveErrors++
+                        Log.w(TAG, "SCANNER_CAPTURE_FAILED background loop (consecutive=$consecutiveErrors)")
+                        if (consecutiveErrors >= MAX_CONSECUTIVE_CAPTURE_ERRORS) {
+                            Log.w(TAG, "SCANNER_CAPTURE_FAILED giving up after $consecutiveErrors consecutive errors, stopping")
+                            break
+                        }
+                        // Brief pause before the next attempt instead of hammering a
+                        // device that may just be mid-recovery from a marginal read.
+                        delay(CAPTURE_ERROR_RETRY_DELAY_MS)
                     }
                 }
             }
@@ -280,10 +304,26 @@ class FingerprintKioskService : Service() {
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val manager = getSystemService(NotificationManager::class.java)
-            if (manager.getNotificationChannel(CHANNEL_ID) == null) {
+            // Two separate channels: the ongoing "still listening" notification
+            // is LOW importance (silent, no heads-up) since it's just persistent
+            // status, not something needing attention. The "member scanned" alert
+            // stays HIGH/heads-up on its own channel. These used to share one
+            // HIGH-importance channel, which meant every repost of the ongoing
+            // notification (e.g. on a service restart) surfaced as a heads-up
+            // alert too — the on/off "flicker" reported alongside the disabled
+            // scanner. Fixing the restart storm (see runLoop) is the real fix for
+            // that; this just makes the notification behavior correct regardless.
+            if (manager.getNotificationChannel(ONGOING_CHANNEL_ID) == null) {
                 manager.createNotificationChannel(
-                    NotificationChannel(CHANNEL_ID, "Fingerprint scanner", NotificationManager.IMPORTANCE_HIGH).apply {
+                    NotificationChannel(ONGOING_CHANNEL_ID, "Fingerprint scanner status", NotificationManager.IMPORTANCE_LOW).apply {
                         description = "Shows while the fingerprint scanner is actively listening"
+                    }
+                )
+            }
+            if (manager.getNotificationChannel(ALERT_CHANNEL_ID) == null) {
+                manager.createNotificationChannel(
+                    NotificationChannel(ALERT_CHANNEL_ID, "Member scanned", NotificationManager.IMPORTANCE_HIGH).apply {
+                        description = "Alerts when a member is recognized while the app is backgrounded"
                     }
                 )
             }
@@ -295,7 +335,7 @@ class FingerprintKioskService : Service() {
             this, 0, Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        return NotificationCompat.Builder(this, CHANNEL_ID)
+        return NotificationCompat.Builder(this, ONGOING_CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentTitle("Fingerprint scanner active")
             .setContentText("Listening for member check-ins")
@@ -321,7 +361,7 @@ class FingerprintKioskService : Service() {
             ),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+        val notification = NotificationCompat.Builder(this, ALERT_CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentTitle("Member scanned")
             .setContentText("Bringing up member details")
