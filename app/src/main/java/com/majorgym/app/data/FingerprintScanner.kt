@@ -12,6 +12,7 @@ import android.util.Log
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
@@ -354,9 +355,19 @@ class FingerprintScanner(private val appContext: Context) {
      * same USB device, which is what was producing "Fingerprint scanner
      * unavailable" (and, occasionally, a native-level crash) regardless of how
      * early enrollment asked the background scanner to stop.
+     *
+     * Wrapped in NonCancellable because the most common caller of this is a
+     * `finally` block belonging to a coroutine that is already being
+     * cancelled (e.g. FingerprintKioskService's runLoop when a stop request
+     * arrives) — a suspend call made from a cancelled coroutine without this
+     * wrapper is liable to throw CancellationException immediately instead of
+     * actually running, which would skip the real device release entirely
+     * and defeat the whole point of "await".
      */
     suspend fun closeAndAwait() {
-        releaseNow()
+        withContext(NonCancellable) {
+            releaseNow()
+        }
     }
 
     private suspend fun releaseNow() {

@@ -31,6 +31,8 @@ import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 private const val TAG = "FingerprintKioskSvc"
 private const val MATCHED_DISPLAY_MS = 3000L
@@ -74,6 +76,22 @@ class FingerprintKioskService : Service() {
     private var scanner: FingerprintScanner? = null
 
     /**
+     * Serializes every full "open device / run loop / close device" cycle so a
+     * new one can never start until the previous one has ACTUALLY finished
+     * closing its handle. Without this, a stop request followed quickly by a
+     * start request (which happens routinely — every enrollment, and every
+     * 3-second poll in KioskOverlay's coordinator) can hit this same Service
+     * instance while the old loop's cleanup is still mid-flight on another
+     * coroutine: onStartCommand sees [loopJob] already null (stopListeningAndSelf
+     * clears it synchronously, before the async cleanup finishes) and launches a
+     * second loop that opens a brand-new native handle while the first is still
+     * releasing the old one — two coroutines touching the same physical USB
+     * device at once. A new runLoop's open() now simply waits its turn here
+     * instead of racing the previous one's close().
+     */
+    private val scannerLifecycleMutex = Mutex()
+
+    /**
      * Enrolled members (with a fingerprint template), refreshed reactively from
      * Room via [runLoop]'s cache collector instead of being re-queried from the
      * database on every single scan. Kept pre-sorted by most-recently-seen
@@ -92,17 +110,17 @@ class FingerprintKioskService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
-            stopListeningAndSelf()
+            stopListeningAndSelf(startId)
             return START_NOT_STICKY
         }
         // Already trying/listening — nothing new to do for a repeat start request.
         if (loopJob?.isActive == true) return START_NOT_STICKY
 
-        loopJob = serviceScope.launch { runLoop() }
+        loopJob = serviceScope.launch { runLoop(startId) }
         return START_NOT_STICKY
     }
 
-    private suspend fun CoroutineScope.runLoop() {
+    private suspend fun CoroutineScope.runLoop(startId: Int) {
         // Android requires startForeground() to be called within a few seconds of
         // startForegroundService() or the OS kills the process — so this call goes
         // first, before we even know if a device is present. In practice this is a
@@ -112,6 +130,14 @@ class FingerprintKioskService : Service() {
         // a rare defensive fallback, not the normal case.
         startForeground(ONGOING_NOTIF_ID, buildOngoingNotification())
 
+        // Everything that touches the physical device — for this entire loop
+        // iteration, start to finish — happens under this lock. If a previous
+        // iteration's cleanup (from a stop that raced this start) is still
+        // releasing its handle, this simply waits here until it's done instead
+        // of opening a second handle on top of it. See scannerLifecycleMutex's
+        // doc for why this specific race was the real cause of total scanner
+        // lockup, not just occasional errors.
+        scannerLifecycleMutex.withLock {
         val fp = FingerprintScanner(this@FingerprintKioskService)
         scanner = fp
 
@@ -119,10 +145,15 @@ class FingerprintKioskService : Service() {
         val openResult = fp.open()
         if (openResult !is FingerprintScanner.OpenResult.Success) {
             Log.w(TAG, "SCANNER_OPEN_FAILED background loop result=$openResult")
-            fp.close()
+            fp.closeAndAwait()
             scanner = null
             stopForegroundCompat()
-            stopSelf()
+            // stopSelf(startId), not bare stopSelf(): if a newer start request
+            // has already been delivered to this service by the time we get
+            // here, this is a no-op and the service stays alive for that newer
+            // request instead of being torn down out from under it — see
+            // stopListeningAndSelf's doc for the full story.
+            stopSelf(startId)
             return
         }
         Log.d(TAG, "SCANNER_BACKGROUND_SCAN_START")
@@ -238,8 +269,11 @@ class FingerprintKioskService : Service() {
             scanner = null
             ScannerOwnership.release(ScannerOwnership.Owner.KIOSK)
             stopForegroundCompat()
-            stopSelf()
+            // See the comment on the other stopSelf(startId) call above — same
+            // reasoning applies here.
+            stopSelf(startId)
         }
+        } // scannerLifecycleMutex.withLock
     }
 
     /** Swiping the app off the Recent Apps list — stop scanning entirely, per spec. */
@@ -276,8 +310,22 @@ class FingerprintKioskService : Service() {
      * the caller's thread) for its finally block to actually release the
      * device before tearing down the foreground notification/service. Never
      * closes the scanner directly from here — see [runLoop]'s finally comment.
+     *
+     * Takes the triggering command's [startId] and passes it to stopSelf(Int)
+     * rather than calling bare stopSelf(). Bare stopSelf() tears the whole
+     * Service down unconditionally — including serviceScope, which would kill
+     * any newer loop that had already started in response to a start request
+     * that arrived while this stop's cleanup was still in flight. stopSelf(Int)
+     * only actually stops the service if no newer command has been delivered
+     * since [startId], so a start that raced in ahead of this cleanup finishing
+     * survives instead of being destroyed the instant it begins.
+     *
+     * [startId] is optional: [onTaskRemoved] (the app swiped out of Recent
+     * Apps) has no startId to give and, per spec, wants an unconditional stop
+     * regardless of any pending start — that path passes null and falls back
+     * to bare stopSelf().
      */
-    private fun stopListeningAndSelf() {
+    private fun stopListeningAndSelf(startId: Int? = null) {
         val job = loopJob
         loopJob = null
         KioskBus.publish(null)
@@ -286,14 +334,14 @@ class FingerprintKioskService : Service() {
             // to wait on, just tear down defensively.
             MembershipAudioPlayer.stop()
             stopForegroundCompat()
-            stopSelf()
+            if (startId != null) stopSelf(startId) else stopSelf()
             return
         }
         serviceScope.launch {
             job.cancelAndJoin()
             MembershipAudioPlayer.stop()
             stopForegroundCompat()
-            stopSelf()
+            if (startId != null) stopSelf(startId) else stopSelf()
         }
     }
 
