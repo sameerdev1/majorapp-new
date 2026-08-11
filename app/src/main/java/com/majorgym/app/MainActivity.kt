@@ -120,7 +120,6 @@ class MainActivity : ComponentActivity() {
                             }
                             Screen.Backup -> BackupScreen(vm)
                             Screen.Sync -> SyncScreen(vm)
-                            Screen.Revenue -> RevenueScreen(members) { screen = it }
                             Screen.TotalMembers -> FilteredMembersScreen(
                                 "Total Members", members, showSearch = true, emptyText = "No members yet."
                             ) { screen = it }

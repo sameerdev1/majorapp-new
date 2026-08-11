@@ -16,7 +16,7 @@ import com.majorgym.app.data.daysBetweenNow
  * bucket doesn't. Both are computed from the same [daysBetweenNow] source of
  * truth, so they never disagree about *whether* a membership has expired.
  */
-enum class MembershipAudioStatus { EXPIRED, EXPIRING_TODAY, EXPIRING_IN_1_DAY, ACTIVE }
+enum class MembershipAudioStatus { EXPIRED, EXPIRING_TODAY, EXPIRING_IN_1_DAY, ACTIVE, UNIDENTIFIED }
 
 /** Priority order per spec: expired beats expiring-today beats expiring-tomorrow
  *  beats active. Uses the device's local calendar date, same as every other
@@ -32,8 +32,10 @@ fun membershipAudioStatusOf(expiryMillis: Long): MembershipAudioStatus {
 }
 
 /**
- * Plays the bundled ACTIVE / EXPIRED / EXPIRING_TODAY / EXPIRING_IN_1_DAY MP3s
- * (res/raw) after a successful fingerprint match. Intentionally its own tiny
+ * Plays the bundled ACTIVE / EXPIRED / EXPIRING_TODAY / EXPIRING_IN_1_DAY /
+ * UNIDENTIFIED MP3s (res/raw) after a fingerprint scan — the first four after
+ * a successful match, UNIDENTIFIED when the scanned print doesn't match any
+ * enrolled member. Intentionally its own tiny
  * object, separate from [KioskSound]'s ToneGenerator beeps — those stay exactly
  * as they were; this only adds the new membership-status clip alongside them.
  *
@@ -60,6 +62,7 @@ internal object MembershipAudioPlayer {
                 MembershipAudioStatus.EXPIRED -> R.raw.expired
                 MembershipAudioStatus.EXPIRING_TODAY -> R.raw.expiring_today
                 MembershipAudioStatus.EXPIRING_IN_1_DAY -> R.raw.expiring_in_1_day
+                MembershipAudioStatus.UNIDENTIFIED -> R.raw.unidentified
             }
 
             val player = MediaPlayer.create(context.applicationContext, rawRes) ?: run {

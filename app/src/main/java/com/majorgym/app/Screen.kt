@@ -19,10 +19,6 @@ sealed class Screen {
     data class Renewed(val id: String, val justRenewed: Boolean = false) : Screen()
     data object Backup : Screen()
     data object Sync : Screen()
-    /** Month-wise revenue breakdown, reached by tapping the Dashboard's revenue
-     *  card. Reads the same members/history data the Dashboard total already
-     *  uses — no separate data store, so it can never drift from that total. */
-    data object Revenue : Screen()
     /** Reached by tapping the Dashboard's four stat cards. Each just filters
      *  the same [com.majorgym.app.data.Member] list / statusOf logic the
      *  Dashboard already uses to compute those same four numbers — so a tap

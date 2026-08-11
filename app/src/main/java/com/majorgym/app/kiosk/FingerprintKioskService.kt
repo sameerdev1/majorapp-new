@@ -204,6 +204,10 @@ class FingerprintKioskService : Service() {
                         } else {
                             KioskSound.playError()
                             KioskBus.publish(KioskEvent(null, recognized = false, expired = false))
+                            // Unidentified-user audio: mirrors the matched-member branch
+                            // above, but always plays the UNIDENTIFIED clip since there's
+                            // no member/expiry to look up here.
+                            MembershipAudioPlayer.play(applicationContext, MembershipAudioStatus.UNIDENTIFIED)
                             notifyIfBackgrounded()
                             delay(NOT_RECOGNIZED_DISPLAY_MS)
                         }

@@ -225,7 +225,6 @@ fun DashboardScreen(members: List<Member>, onNavigate: (Screen) -> Unit) {
     val active = members.count { statusOf(it.expiryMillis) == MemberStatus.ACTIVE }
     val expiring = members.count { statusOf(it.expiryMillis) == MemberStatus.EXPIRING }
     val expired = members.count { statusOf(it.expiryMillis) == MemberStatus.EXPIRED }
-    val revenue = members.sumOf { m -> m.historyJson.toHistoryList().sumOf { it.fee } }
     val attention = members
         .filter { m ->
             val daysRemaining = daysBetweenNow(m.expiryMillis)
@@ -263,22 +262,6 @@ fun DashboardScreen(members: List<Member>, onNavigate: (Screen) -> Unit) {
                 StatCard("Expiring Soon", expiring.toString(), Modifier.weight(1f)) { onNavigate(Screen.ExpiringMembers) }
                 StatCard("Expired", expired.toString(), Modifier.weight(1f)) { onNavigate(Screen.ExpiredMembers) }
             }
-        }
-        item {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(GymColors.SurfaceCard)
-                    .border(1.dp, GymColors.Border, RoundedCornerShape(16.dp))
-                    .clickable { onNavigate(Screen.Revenue) }
-                    .padding(16.dp)
-            ) {
-                Text("TOTAL REVENUE", color = GymColors.Gold, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
-                Spacer(Modifier.height(6.dp))
-                Text(formatMoney(revenue), color = GymColors.Gold, fontSize = 32.sp, fontWeight = FontWeight.ExtraBold)
-            }
-            Spacer(Modifier.height(18.dp))
         }
         if (attention.isNotEmpty()) {
             item {
