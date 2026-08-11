@@ -28,7 +28,6 @@ import com.majorgym.app.Screen
 import com.majorgym.app.data.*
 import com.majorgym.app.kiosk.FingerprintKioskService
 import com.majorgym.app.kiosk.ScannerOwnership
-import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -74,7 +73,6 @@ private fun statusText(status: ScanStatus, detail: String): String = when (statu
 fun EnrollFingerprintScreen(member: Member, vm: MembersViewModel, returnTo: Screen, onNavigate: (Screen) -> Unit) {
     val activity = LocalContext.current as ComponentActivity
     val scope = rememberCoroutineScope()
-    val scanner = remember { FingerprintScanner(activity) }
     var status by remember { mutableStateOf(ScanStatus.IDLE) }
     var detail by remember { mutableStateOf("") }
     var firstScan by remember { mutableStateOf<ByteArray?>(null) }
@@ -83,12 +81,12 @@ fun EnrollFingerprintScreen(member: Member, vm: MembersViewModel, returnTo: Scre
     // running — the button is disabled during OPENING/WAITING, but this also
     // covers the RELEASING wait before that state is even set.
     var scanInFlight by remember { mutableStateOf(false) }
-    // True once scanner.open() has succeeded for this enrollment session.
-    // Enrollment needs two scans of the same finger, but the scanner should
-    // only be opened ONCE for both of them — re-opening for the second scan
-    // (instead of reusing the already-open device) is what left a stale
-    // native handle behind and crashed the app on the confirm scan.
-    var scannerOpen by remember { mutableStateOf(false) }
+    // True once this enrollment session has taken ownership from the kiosk
+    // loop and confirmed the shared connection is open. Enrollment needs two
+    // scans of the same finger; only the first needs the stop-kiosk / await-
+    // release dance below — the second just reuses the same already-open
+    // connection and already-held ownership.
+    var sessionAcquired by remember { mutableStateOf(false) }
 
     DisposableEffect(Unit) {
         // Tell the background kiosk loop to stop the moment this screen is
@@ -97,32 +95,22 @@ fun EnrollFingerprintScreen(member: Member, vm: MembersViewModel, returnTo: Scre
         // here too means the release clock starts as early as possible.
         FingerprintKioskService.requestStop(activity)
         onDispose {
-            // IMPORTANT: this must use closeAndAwait(), not close(). close() is
-            // fire-and-forget — it kicks off the native CloseDevice()/Close()
-            // calls on a background scope and returns immediately, before the
-            // physical USB device is actually free. Releasing ScannerOwnership
-            // and restarting the kiosk service right after a plain close() lets
-            // the kiosk try to open the very same device while this screen's own
-            // close is still mid-flight on another thread — a real race for the
-            // physical device, exactly like the one already fixed on the kiosk
-            // side (see FingerprintKioskService's use of closeAndAwait() and its
-            // doc comment). That race is intermittent, not constant — it depends
-            // on USB/OS timing — which is why it only showed up occasionally
-            // (e.g. on the 13th enrollment in a row) rather than every time.
-            //
-            // onDispose can't suspend, so the await has to happen on a scope that
-            // outlives this composable — vm's viewModelScope survives navigating
-            // away from this screen (unlike rememberCoroutineScope(), which gets
-            // cancelled the instant onDispose runs). Ownership release and the
-            // kiosk restart now only happen once the device is genuinely free.
-            vm.viewModelScope.launch {
-                runCatching { scanner.closeAndAwait() }
-                    .onFailure { Log.e(TAG, "SCANNER_EXCEPTION during closeAndAwait in onDispose: ${it.message}", it) }
-                ScannerOwnership.release(ScannerOwnership.Owner.ENROLLMENT)
-                // Let the background scanner resume now that we're done with the
-                // device — otherwise it would sit idle until the next poll tick.
-                FingerprintKioskService.requestStart(activity)
-            }
+            // Nothing to close here anymore: ScannerHub owns the one
+            // persistent native connection for the whole app now, and this
+            // screen was only ever borrowing capture calls from it — never
+            // opening or closing the device itself. That's a deliberate
+            // architectural change, not an oversight: every earlier round of
+            // fixes here closed a real race in the old close-then-reopen
+            // handoff, but the scanner kept degrading regardless, because
+            // repeatedly re-initializing this specific hardware was itself
+            // the problem, not just the timing of when it happened (see
+            // ScannerHub's doc for the full history). So now there is simply
+            // no close call to await — releasing ownership is a plain
+            // synchronous flag flip, safe to do directly in onDispose.
+            ScannerOwnership.release(ScannerOwnership.Owner.ENROLLMENT)
+            // Let the background scanner resume polling now that we're done
+            // — otherwise it would sit idle until the next poll tick.
+            FingerprintKioskService.requestStart(activity)
         }
     }
 
@@ -142,10 +130,10 @@ fun EnrollFingerprintScreen(member: Member, vm: MembersViewModel, returnTo: Scre
             // back to Home whenever a finger touched the scanner mid-conflict.
             try {
                 // Only go through the release-wait + open dance once per
-                // session. On the second (confirm) scan, scannerOpen is
+                // session. On the second (confirm) scan, sessionAcquired is
                 // already true, so we skip straight to capture and reuse the
-                // same open device instead of opening it a second time.
-                if (!scannerOpen) {
+                // same shared, already-open connection.
+                if (!sessionAcquired) {
                     status = ScanStatus.RELEASING
                     detail = ""
                     FingerprintKioskService.requestStop(activity)
@@ -156,23 +144,25 @@ fun EnrollFingerprintScreen(member: Member, vm: MembersViewModel, returnTo: Scre
 
                     status = ScanStatus.OPENING
                     Log.d(TAG, "SCANNER_ENROLL_START")
-                    // A single OpenDevice() attempt can still fail transiently
-                    // right after the USB device changes hands (OS/SDK-level
-                    // settling time) even once ownership is genuinely free —
-                    // so retry a few times with a short backoff before
-                    // surfacing an error, instead of failing on the first try.
-                    var open: FingerprintScanner.OpenResult = scanner.open()
+                    // ScannerHub.ensureOpen() is idempotent — in the common
+                    // case the kiosk loop already has the shared connection
+                    // open and this returns Success immediately without
+                    // touching the native SDK at all. A retry loop is still
+                    // worth keeping for the rare genuine first-ever-open (no
+                    // session yet, e.g. right after the app starts), where a
+                    // single OpenDevice() attempt can still fail transiently.
+                    var open: FingerprintScanner.OpenResult = ScannerHub.ensureOpen(activity)
                     var openAttempt = 1
                     while (open is FingerprintScanner.OpenResult.Busy && openAttempt < OPEN_MAX_ATTEMPTS) {
                         Log.w(TAG, "SCANNER_OPEN_RETRY attempt=$openAttempt")
                         delay(OPEN_RETRY_DELAY_MS * openAttempt)
-                        open = scanner.open()
+                        open = ScannerHub.ensureOpen(activity)
                         openAttempt++
                     }
                     when (open) {
                         is FingerprintScanner.OpenResult.Success -> {
                             ScannerOwnership.acquire(ScannerOwnership.Owner.ENROLLMENT)
-                            scannerOpen = true
+                            sessionAcquired = true
                         }
                         FingerprintScanner.OpenResult.DeviceNotFound -> {
                             status = ScanStatus.FAILED; detail = "No SecuGen scanner found. Plug it in via USB and try again."
@@ -193,8 +183,19 @@ fun EnrollFingerprintScreen(member: Member, vm: MembersViewModel, returnTo: Scre
                         }
                     }
                 }
+                val fp = ScannerHub.current()
+                if (fp == null) {
+                    // Shouldn't be reachable (the open dance above already
+                    // returned early on anything but Success), but the shared
+                    // session could in principle vanish between that check and
+                    // here if the device was yanked out at literally this
+                    // instant — handle it rather than crashing on a NPE.
+                    status = ScanStatus.FAILED
+                    detail = "Fingerprint scanner unavailable. Please reconnect the scanner."
+                    return@launch
+                }
                 status = ScanStatus.WAITING
-                when (val capture = scanner.captureTemplate()) {
+                when (val capture = fp.captureTemplate()) {
                     is FingerprintScanner.CaptureResult.Success -> {
                         status = ScanStatus.CAPTURED
                         Log.d(TAG, "SCANNER_TEMPLATE_SUCCESS")
@@ -205,7 +206,7 @@ fun EnrollFingerprintScreen(member: Member, vm: MembersViewModel, returnTo: Scre
                             status = ScanStatus.IDLE
                             detail = "First scan captured. Scan the same finger again to confirm."
                         } else {
-                            val matched = scanner.match(prior, capture.template)
+                            val matched = fp.match(prior, capture.template)
                             if (matched) {
                                 vm.saveFingerprintTemplate(member, capture.template)
                                 status = ScanStatus.MATCHED

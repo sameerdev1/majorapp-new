@@ -8,17 +8,18 @@ import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * The SecuGen Hamster Pro 20 is a single physical USB device — only one
- * [com.majorgym.app.data.FingerprintScanner] instance may have it open at a
- * time, whether that's [FingerprintKioskService]'s background identification
- * loop or the enrollment screen's own scanner.
+ * consumer, [FingerprintKioskService]'s background loop or the enrollment
+ * screen, should be actively capturing on it at a time.
  *
- * Previously the handoff between those two was "fire and forget": the
- * enrollment screen asked the service to stop and then opened its own
- * scanner immediately, with no guarantee the service had actually released
- * the device yet. That race is the root cause of the "scanner error, then
- * back to Home when a finger is placed" bug — two owners ended up touching
- * the same native device concurrently. This object gives callers a real
- * acknowledgment to wait on instead.
+ * The connection itself is no longer opened/closed on this handoff at all —
+ * see [com.majorgym.app.data.ScannerHub], which owns one persistent native
+ * connection for the whole app process. This object now only arbitrates
+ * *turn-taking* for capture calls on that shared connection: whichever owner
+ * holds it is the one whose capture loop should be running right now. That's
+ * a narrower job than it used to have (it used to gate real open/close
+ * timing, back when every handoff meant a fresh native Init/Open/Close
+ * cycle), but callers use it exactly the same way as before — acquire before
+ * capturing, release when done, awaitReleased before taking over.
  */
 object ScannerOwnership {
     private const val TAG = "ScannerOwnership"

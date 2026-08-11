@@ -20,6 +20,7 @@ import com.majorgym.app.data.AppDatabase
 import com.majorgym.app.data.FingerprintScanner
 import com.majorgym.app.data.Member
 import com.majorgym.app.data.MemberStatus
+import com.majorgym.app.data.ScannerHub
 import com.majorgym.app.data.statusOf
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -131,22 +132,18 @@ class FingerprintKioskService : Service() {
         startForeground(ONGOING_NOTIF_ID, buildOngoingNotification())
 
         // Everything that touches the physical device — for this entire loop
-        // iteration, start to finish — happens under this lock. If a previous
-        // iteration's cleanup (from a stop that raced this start) is still
-        // releasing its handle, this simply waits here until it's done instead
-        // of opening a second handle on top of it. See scannerLifecycleMutex's
-        // doc for why this specific race was the real cause of total scanner
-        // lockup, not just occasional errors.
+        // iteration, start to finish — happens under this lock, so an
+        // overlapping stop/start against this same Service instance can never
+        // launch two loop bodies concurrently. The device itself is no longer
+        // opened or closed here at all, though — see ScannerHub for why: it
+        // owns the one persistent native connection for the whole app, and
+        // this loop just borrows capture calls from it.
         scannerLifecycleMutex.withLock {
-        val fp = FingerprintScanner(this@FingerprintKioskService)
-        scanner = fp
-
-        Log.d(TAG, "SCANNER_INIT_START background loop")
-        val openResult = fp.open()
-        if (openResult !is FingerprintScanner.OpenResult.Success) {
+        Log.d(TAG, "SCANNER_ENSURE_OPEN background loop")
+        val openResult = ScannerHub.ensureOpen(applicationContext)
+        val fp = ScannerHub.current()
+        if (openResult !is FingerprintScanner.OpenResult.Success || fp == null) {
             Log.w(TAG, "SCANNER_OPEN_FAILED background loop result=$openResult")
-            fp.closeAndAwait()
-            scanner = null
             stopForegroundCompat()
             // stopSelf(startId), not bare stopSelf(): if a newer start request
             // has already been delivered to this service by the time we get
@@ -156,12 +153,14 @@ class FingerprintKioskService : Service() {
             stopSelf(startId)
             return
         }
+        scanner = fp
         Log.d(TAG, "SCANNER_BACKGROUND_SCAN_START")
-        // Claim ownership only once the device is actually open, and release it
-        // in the finally block below — no matter whether the loop exits
-        // normally, hits an SDK error, or is cancelled (e.g. enrollment asked
-        // us to stop). Enrollment waits on this via ScannerOwnership before it
-        // ever opens its own scanner, so the two are never open concurrently.
+        // Claim ownership only once we're actually about to start capturing,
+        // and release it in the finally block below — no matter whether the
+        // loop exits normally, hits an SDK error, or is cancelled (e.g.
+        // enrollment asked us to stop). Enrollment waits on this via
+        // ScannerOwnership before it starts capturing on the same shared
+        // connection, so the two are never actively capturing concurrently.
         ScannerOwnership.acquire(ScannerOwnership.Owner.KIOSK)
 
         var cacheJob: Job? = null
@@ -246,26 +245,16 @@ class FingerprintKioskService : Service() {
         } catch (e: Throwable) {
             Log.e(TAG, "SCANNER_EXCEPTION in background loop: ${e.message}", e)
         } finally {
-            // This finally block is the ONLY place the background scanner is ever
-            // closed, and it always runs on this loop's own coroutine — never
-            // from onStartCommand/onDestroy's calling thread. That was the root
-            // cause of the enrollment crash: the service used to close the
-            // native device directly from the command-handling thread while this
-            // loop might still be mid-capture on the IO dispatcher, i.e. two
-            // threads touching the same native SecuGen handle at once.
-            //
-            // closeAndAwait() (not close()) is deliberate here: this suspends
-            // until the native device is ACTUALLY released before we announce
-            // ownership as free. The old fire-and-forget close() returned
-            // instantly while the real release kept running in the background —
-            // so ScannerOwnership.release() below used to fire while the device
-            // was still physically open, letting enrollment race in and open
-            // its own connection against a device the kiosk hadn't actually let
-            // go of yet. That race, not any navigation-timing issue, was the
-            // real source of "Fingerprint scanner unavailable" / crashes.
+            // This finally block no longer closes the native device at all —
+            // that's the whole point of the ScannerHub redesign (see its doc
+            // for the full history of why repeatedly closing/reopening this
+            // specific hardware was the real root cause, not any one race).
+            // All that happens here is: stop OUR polling loop, hand turn-
+            // taking ownership back, and let the service itself stop — the
+            // physical connection stays open and ready for whoever asks next
+            // (enrollment, or this same loop again on the next requestStart).
             cacheJob?.cancel()
-            fp.closeAndAwait()
-            Log.d(TAG, "SCANNER_BACKGROUND_SCAN_STOP")
+            Log.d(TAG, "SCANNER_BACKGROUND_SCAN_STOP (session stays open)")
             scanner = null
             ScannerOwnership.release(ScannerOwnership.Owner.KIOSK)
             stopForegroundCompat()
@@ -287,15 +276,22 @@ class FingerprintKioskService : Service() {
         loopJob = null
         // cancelAndJoin (not a bare cancel()) so runLoop's own finally block —
         // running on its own coroutine, not this one — gets a chance to
-        // actually close the device before this Service object goes away.
+        // actually release ownership/cancel its cache subscription cleanly
+        // before this Service object goes away.
         runCatching {
             kotlinx.coroutines.runBlocking {
                 kotlinx.coroutines.withTimeoutOrNull(1500) { job?.cancelAndJoin() }
             }
         }
-        // Fallback only: if the loop never started (no scanner was ever open)
-        // or the join above timed out, make sure nothing is left dangling.
-        runCatching { scanner?.close() }
+        // Fallback only, for the loopJob.cancelAndJoin() timeout case above:
+        // this Service instance's own `scanner` field is just a borrowed
+        // reference into ScannerHub's persistent session now, never something
+        // this class owns — so there is nothing to close here. Closing it
+        // would re-introduce exactly the repeated-cycling problem ScannerHub
+        // exists to eliminate, and would also yank the device out from under
+        // enrollment if this destroy happens to overlap with it holding
+        // ownership. ScannerHub only ever closes the real connection on an
+        // actual USB detach.
         scanner = null
         ScannerOwnership.release(ScannerOwnership.Owner.KIOSK)
         MembershipAudioPlayer.stop()
