@@ -24,6 +24,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
@@ -264,6 +265,7 @@ fun DatePickerField(date: LocalDate, onChange: (LocalDate) -> Unit) {
 // ---------- Dashboard ----------
 
 @Composable
+@OptIn(ExperimentalFoundationApi::class)
 fun DashboardScreen(members: List<Member>, onNavigate: (Screen) -> Unit) {
     val active = members.count { statusOf(it.expiryMillis) == MemberStatus.ACTIVE }
     val expiring = members.count { statusOf(it.expiryMillis) == MemberStatus.EXPIRING }
@@ -459,6 +461,7 @@ fun StatCard(label: String, value: String, modifier: Modifier = Modifier, onClic
 // ---------- Members list ----------
 
 @Composable
+@OptIn(ExperimentalFoundationApi::class)
 fun MembersScreen(members: List<Member>, onNavigate: (Screen) -> Unit) {
     var query by remember { mutableStateOf("") }
     val filtered = members.filter {

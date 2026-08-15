@@ -1,5 +1,6 @@
 package com.majorgym.app.ui
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -36,6 +37,7 @@ import com.majorgym.app.data.Member
  * tapping a member or its Renew shortcut behaves identically everywhere.
  */
 @Composable
+@OptIn(ExperimentalFoundationApi::class)
 fun FilteredMembersScreen(
     title: String,
     members: List<Member>,

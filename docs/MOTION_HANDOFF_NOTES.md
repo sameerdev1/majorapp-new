@@ -118,6 +118,51 @@ files went through, so a first build-and-fix pass should be expected.
   over-engineer this."
 - No build was run (see above).
 
+## Build fix — CI failure resolved (this pass)
+
+A GitHub Actions build log (`assembleDebug`) surfaced 5 `compileDebugKotlin`
+errors. All five are now fixed in this archive:
+
+1. `FingerprintScreens.kt:300` — `Unresolved reference: animateFloat`
+2. `FingerprintScreens.kt:309` — `Unresolved reference: animateFloat`
+3. `KioskOverlay.kt:227` — `Unresolved reference: animateFloat`
+
+   Cause: `InfiniteTransition.animateFloat(...)` is an *extension function*
+   in `androidx.compose.animation.core`, separate from the `InfiniteTransition`
+   class itself — it needs its own explicit import
+   (`import androidx.compose.animation.core.animateFloat`), which was missing
+   from both files even though `rememberInfiniteTransition` and
+   `infiniteRepeatable` were correctly imported. Fixed by adding that one
+   import line to each file.
+
+4. `MemberListScreens.kt:85` — `This foundation API is experimental and is
+   likely to change or be removed in the future.`
+5. `Screens.kt:318` — same, for the Dashboard "Needs Attention" list.
+6. `Screens.kt:484` — same, for the main Members list.
+
+   Cause: this project pins `compose-bom:2024.06.00`, and at that Compose
+   Foundation version `Modifier.animateItemPlacement()` is annotated
+   `@ExperimentalFoundationApi`, which the Kotlin compiler treats as a hard
+   error (not a warning) without an opt-in. Fixed by adding
+   `import androidx.compose.foundation.ExperimentalFoundationApi` and
+   `@OptIn(ExperimentalFoundationApi::class)` on each of the three
+   composables that call `animateItemPlacement()`:
+   `FilteredMembersScreen` (`MemberListScreens.kt`), `DashboardScreen` and
+   `MembersScreen` (`Screens.kt`).
+
+After these fixes: no duplicate imports and balanced braces/parens were
+re-verified across all four touched files, and the `pulse.animateFloat(...)`
+call sites were confirmed to be operating on an `InfiniteTransition`
+receiver (from `rememberInfiniteTransition`), which is exactly what the new
+import resolves. **Still not verified against an actual Gradle build** —
+this fix was derived directly from the CI log's file:line:column error
+output, not from a local compile. Push this and let CI (or a local build)
+confirm; if `animateItemPlacement` throws a *different* experimental-API
+error afterwards (e.g. it was renamed/removed entirely in a slightly
+different Foundation version than assumed), the fallback is to switch to
+`LazyItemScope.animateItem()` instead, which is the stable, non-experimental
+replacement in newer Compose Foundation releases.
+
 ## Priority 3 items completed
 - Fingerprint waiting pulse ✅
 - Kiosk idle indicator ✅ (very faint, top-right, respects reduced motion)
@@ -127,3 +172,4 @@ files went through, so a first build-and-fix pass should be expected.
 - Shared-element avatar expansion — not attempted (spec explicitly flags
   this as optional/advanced and warns against experimental APIs for
   novelty alone)
+
