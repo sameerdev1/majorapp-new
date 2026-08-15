@@ -1,7 +1,12 @@
 package com.majorgym.app.ui
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -107,6 +112,7 @@ fun SyncScreen(vm: MembersViewModel) {
         }
         Spacer(Modifier.height(14.dp))
 
+        val syncInteractionSource = remember { MutableInteractionSource() }
         Button(
             onClick = {
                 syncing = true
@@ -128,14 +134,26 @@ fun SyncScreen(vm: MembersViewModel) {
             enabled = !syncing,
             colors = ButtonDefaults.buttonColors(containerColor = GymColors.Accent, disabledContainerColor = GymColors.Surface2),
             shape = RoundedCornerShape(12.dp),
-            modifier = Modifier.fillMaxWidth().height(50.dp)
+            interactionSource = syncInteractionSource,
+            modifier = Modifier.fillMaxWidth().height(50.dp).gymPressScale(syncInteractionSource)
         ) {
-            if (syncing) {
-                CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.Black, strokeWidth = 2.dp)
-            } else {
-                Icon(Icons.Filled.Sync, null, tint = Color.Black)
-                Spacer(Modifier.width(8.dp))
-                Text("Sync Now", fontWeight = FontWeight.Bold, color = Color.Black, fontSize = 15.sp)
+            // Section 16: idle <-> working content swaps with a short cross-fade
+            // instead of an instant replace, communicating idle -> working ->
+            // completed without changing what the button actually does.
+            AnimatedContent(
+                targetState = syncing,
+                transitionSpec = { fadeIn(GymMotion.standardTween()) togetherWith fadeOut(GymMotion.fastTween()) },
+                label = "syncButtonContent"
+            ) { isSyncing ->
+                if (isSyncing) {
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.Black, strokeWidth = 2.dp)
+                } else {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Filled.Sync, null, tint = Color.Black)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Sync Now", fontWeight = FontWeight.Bold, color = Color.Black, fontSize = 15.sp)
+                    }
+                }
             }
         }
 

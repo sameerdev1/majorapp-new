@@ -8,11 +8,19 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -43,6 +51,24 @@ class MainActivity : ComponentActivity() {
                 var showSplash by remember { mutableStateOf(true) }
                 var screen by remember { mutableStateOf<Screen>(Screen.Dashboard) }
                 val members by vm.members.collectAsState()
+
+                // Section 24: lightweight reduced-motion support — reads the
+                // OS-level "Remove animations" developer/accessibility setting
+                // (animator duration scale == 0) once at launch. No in-app
+                // toggle is added; this only follows the system preference,
+                // per "do not over-engineer this." Only Priority-3 decorative
+                // motion (the fingerprint waiting pulse, the kiosk idle
+                // indicator) checks this — functional feedback (screen
+                // transitions, button press states, status colors) stays on
+                // either way, per spec section 24's "core functional feedback
+                // should remain understandable."
+                val reducedMotion = remember {
+                    android.provider.Settings.Global.getFloat(
+                        contentResolver, android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f
+                    ) == 0f
+                }
+
+                CompositionLocalProvider(LocalReducedMotion provides reducedMotion) {
 
                 // Android 13+ requires this permission for the kiosk service's
                 // notification to actually display. Harmless to request even if the
@@ -94,53 +120,75 @@ class MainActivity : ComponentActivity() {
                         )
                         Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.55f)))
 
-                        when (val s = screen) {
-                            Screen.Dashboard -> DashboardScreen(members) { screen = it }
-                            Screen.Members -> MembersScreen(members) { screen = it }
-                            Screen.Add -> AddEditMemberScreen(vm, null) { screen = it }
-                            is Screen.Edit -> {
-                                val m = members.find { it.id == s.id }
-                                if (m != null) AddEditMemberScreen(vm, m) { screen = it }
-                            }
-                            is Screen.Registered -> {
-                                val m = members.find { it.id == s.id }
-                                if (m != null) RegistrationSuccessScreen(m, s.passkey) { screen = it }
-                            }
-                            is Screen.Profile -> {
-                                val m = members.find { it.id == s.id }
-                                if (m != null) ProfileScreen(m, vm) { screen = it }
-                            }
-                            is Screen.Renew -> {
-                                val m = members.find { it.id == s.id }
-                                if (m != null) RenewScreen(m, vm) { screen = it }
-                            }
-                            is Screen.Renewed -> {
-                                val m = members.find { it.id == s.id }
-                                if (m != null) RenewalSuccessScreen(m, s.justRenewed) { screen = it }
-                            }
-                            Screen.Backup -> BackupScreen(vm)
-                            Screen.Sync -> SyncScreen(vm)
-                            Screen.TotalMembers -> FilteredMembersScreen(
-                                "Total Members", members, showSearch = true, emptyText = "No members yet."
-                            ) { screen = it }
-                            Screen.ActiveMembers -> FilteredMembersScreen(
-                                "Active Members",
-                                members.filter { com.majorgym.app.data.statusOf(it.expiryMillis) == com.majorgym.app.data.MemberStatus.ACTIVE },
-                                showSearch = false, emptyText = "No active members."
-                            ) { screen = it }
-                            Screen.ExpiringMembers -> FilteredMembersScreen(
-                                "Expiring Soon",
-                                members.filter { com.majorgym.app.data.statusOf(it.expiryMillis) == com.majorgym.app.data.MemberStatus.EXPIRING },
-                                showSearch = false, emptyText = "No members expiring soon."
-                            ) { screen = it }
-                            Screen.ExpiredMembers -> FilteredMembersScreen(
-                                "Expired Members",
-                                members.filter { com.majorgym.app.data.statusOf(it.expiryMillis) == com.majorgym.app.data.MemberStatus.EXPIRED },
-                                showSearch = false, emptyText = "No expired members."
-                            ) { screen = it }
-                            is Screen.EnrollFingerprint -> {
-                                val m = members.find { it.id == s.id }
-                                if (m != null) EnrollFingerprintScreen(m, vm, s.returnTo) { screen = it }
+                        // Priority 1: purely visual fade + slight horizontal-movement
+                        // transition between screens. This is layered on top of the
+                        // existing manually-managed `screen` state / `when` block —
+                        // no Navigation Compose, no change to what each branch does or
+                        // when it does it. AnimatedContent swaps content as soon as
+                        // `screen` changes; nothing here delays ViewModel/DB/hardware
+                        // work, which all still runs the instant its composable enters
+                        // composition (see EnrollFingerprintScreen's own DisposableEffect
+                        // for the fingerprint-specific case).
+                        AnimatedContent(
+                            targetState = screen,
+                            transitionSpec = {
+                                (fadeIn(animationSpec = tween(GymMotion.Standard, easing = GymMotion.StandardEasing)) +
+                                    slideInHorizontally(animationSpec = tween(GymMotion.Standard, easing = GymMotion.StandardEasing)) { w -> w / 16 })
+                                    .togetherWith(
+                                        fadeOut(animationSpec = tween(GymMotion.Fast, easing = GymMotion.StandardEasing)) +
+                                            slideOutHorizontally(animationSpec = tween(GymMotion.Fast, easing = GymMotion.StandardEasing)) { w -> -w / 16 }
+                                    )
+                            },
+                            label = "screenTransition"
+                        ) { targetScreen ->
+                            when (val s = targetScreen) {
+                                Screen.Dashboard -> DashboardScreen(members) { screen = it }
+                                Screen.Members -> MembersScreen(members) { screen = it }
+                                Screen.Add -> AddEditMemberScreen(vm, null) { screen = it }
+                                is Screen.Edit -> {
+                                    val m = members.find { it.id == s.id }
+                                    if (m != null) AddEditMemberScreen(vm, m) { screen = it }
+                                }
+                                is Screen.Registered -> {
+                                    val m = members.find { it.id == s.id }
+                                    if (m != null) RegistrationSuccessScreen(m, s.passkey) { screen = it }
+                                }
+                                is Screen.Profile -> {
+                                    val m = members.find { it.id == s.id }
+                                    if (m != null) ProfileScreen(m, vm) { screen = it }
+                                }
+                                is Screen.Renew -> {
+                                    val m = members.find { it.id == s.id }
+                                    if (m != null) RenewScreen(m, vm) { screen = it }
+                                }
+                                is Screen.Renewed -> {
+                                    val m = members.find { it.id == s.id }
+                                    if (m != null) RenewalSuccessScreen(m, s.justRenewed) { screen = it }
+                                }
+                                Screen.Backup -> BackupScreen(vm)
+                                Screen.Sync -> SyncScreen(vm)
+                                Screen.TotalMembers -> FilteredMembersScreen(
+                                    "Total Members", members, showSearch = true, emptyText = "No members yet."
+                                ) { screen = it }
+                                Screen.ActiveMembers -> FilteredMembersScreen(
+                                    "Active Members",
+                                    members.filter { com.majorgym.app.data.statusOf(it.expiryMillis) == com.majorgym.app.data.MemberStatus.ACTIVE },
+                                    showSearch = false, emptyText = "No active members."
+                                ) { screen = it }
+                                Screen.ExpiringMembers -> FilteredMembersScreen(
+                                    "Expiring Soon",
+                                    members.filter { com.majorgym.app.data.statusOf(it.expiryMillis) == com.majorgym.app.data.MemberStatus.EXPIRING },
+                                    showSearch = false, emptyText = "No members expiring soon."
+                                ) { screen = it }
+                                Screen.ExpiredMembers -> FilteredMembersScreen(
+                                    "Expired Members",
+                                    members.filter { com.majorgym.app.data.statusOf(it.expiryMillis) == com.majorgym.app.data.MemberStatus.EXPIRED },
+                                    showSearch = false, emptyText = "No expired members."
+                                ) { screen = it }
+                                is Screen.EnrollFingerprint -> {
+                                    val m = members.find { it.id == s.id }
+                                    if (m != null) EnrollFingerprintScreen(m, vm, s.returnTo) { screen = it }
+                                }
                             }
                         }
                         BottomNav(screen, modifier = Modifier.align(Alignment.BottomCenter)) { screen = it }
@@ -151,7 +199,16 @@ class MainActivity : ComponentActivity() {
                         // an Activity-owned scan loop, so it works the same whether this
                         // screen was already visible or was just brought to the front.
                         KioskResultOverlay(kioskState.first, kioskState.second)
+
+                        // Priority 3 (optional): a very faint accent indicator that the
+                        // kiosk is listening while idle. Purely decorative — respects
+                        // reduced motion, and renders nothing while a result is showing.
+                        KioskIdleIndicator(
+                            visible = kioskState.first == KioskPhase.IDLE,
+                            modifier = Modifier.align(Alignment.TopEnd)
+                        )
                     }
+                }
                 }
                 }
             }

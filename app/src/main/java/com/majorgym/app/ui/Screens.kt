@@ -8,10 +8,24 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.FileProvider
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.animateIntAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import kotlinx.coroutines.delay
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -26,6 +40,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -61,11 +76,18 @@ fun gymFieldColors() = OutlinedTextFieldDefaults.colors(
 
 @Composable
 fun StatusRing(photoPath: String?, name: String, status: MemberStatus, size: Dp = 56.dp) {
-    val color = when (status) {
+    val targetColor = when (status) {
         MemberStatus.ACTIVE -> GymColors.Success
         MemberStatus.EXPIRING -> GymColors.Warning
         MemberStatus.EXPIRED -> GymColors.Danger
     }
+    // Section 11: status color transitions smoothly (e.g. EXPIRED -> ACTIVE
+    // after a renewal) instead of snapping instantly.
+    val color by animateColorAsState(
+        targetValue = targetColor,
+        animationSpec = GymMotion.standardTween(),
+        label = "statusRingColor"
+    )
     Box(
         modifier = Modifier
             .size(size)
@@ -95,11 +117,12 @@ fun StatusRing(photoPath: String?, name: String, status: MemberStatus, size: Dp 
 
 @Composable
 fun StatusBadge(status: MemberStatus) {
-    val (label, color) = when (status) {
+    val (label, targetColor) = when (status) {
         MemberStatus.ACTIVE -> "ACTIVE" to GymColors.Success
         MemberStatus.EXPIRING -> "EXPIRING SOON" to GymColors.Warning
         MemberStatus.EXPIRED -> "EXPIRED" to GymColors.Danger
     }
+    val color by animateColorAsState(targetColor, animationSpec = GymMotion.standardTween(), label = "statusBadgeColor")
     Box(
         modifier = Modifier
             .clip(RoundedCornerShape(50))
@@ -134,6 +157,14 @@ fun BottomNav(current: Screen, modifier: Modifier = Modifier, onSelect: (Screen)
         ) {
             items.forEach { (screen, icon, label) ->
                 val active = current == screen
+                // Section 6: the selected pill, icon tint, and label color all
+                // ease into place instead of snapping — restrained, no bounce.
+                val pillAlpha by animateFloatAsState(
+                    if (active) 0.18f else 0f, animationSpec = GymMotion.standardTween(), label = "navPillAlpha"
+                )
+                val tint by animateColorAsState(
+                    if (active) GymColors.Accent else GymColors.TextFaint, animationSpec = GymMotion.standardTween(), label = "navTint"
+                )
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier
@@ -145,17 +176,17 @@ fun BottomNav(current: Screen, modifier: Modifier = Modifier, onSelect: (Screen)
                         contentAlignment = Alignment.Center,
                         modifier = Modifier
                             .clip(RoundedCornerShape(16.dp))
-                            .background(if (active) GymColors.Accent.copy(alpha = 0.18f) else Color.Transparent)
+                            .background(GymColors.Accent.copy(alpha = pillAlpha))
                             .padding(horizontal = 14.dp, vertical = 4.dp)
                     ) {
-                        Icon(icon, contentDescription = label, tint = if (active) GymColors.Accent else GymColors.TextFaint)
+                        Icon(icon, contentDescription = label, tint = tint)
                     }
                     Spacer(Modifier.height(2.dp))
                     Text(
                         label,
                         fontSize = 10.sp,
                         fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
-                        color = if (active) GymColors.Accent else GymColors.TextFaint
+                        color = tint
                     )
                 }
             }
@@ -178,17 +209,29 @@ fun PlanGrid(selected: String, onSelect: (String) -> Unit) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 8.dp)) {
                 row.forEach { p ->
                     val active = p == selected
+                    val bg by animateColorAsState(
+                        if (active) GymColors.Accent else GymColors.SurfaceCard,
+                        animationSpec = GymMotion.standardTween(), label = "planBg"
+                    )
+                    val border by animateColorAsState(
+                        if (active) GymColors.Accent else GymColors.Border,
+                        animationSpec = GymMotion.standardTween(), label = "planBorder"
+                    )
+                    val textColor by animateColorAsState(
+                        if (active) Color.Black else GymColors.TextMuted,
+                        animationSpec = GymMotion.standardTween(), label = "planText"
+                    )
                     Box(
                         modifier = Modifier
                             .weight(1f)
                             .clip(RoundedCornerShape(10.dp))
-                            .background(if (active) GymColors.Accent else GymColors.SurfaceCard)
-                            .border(1.dp, if (active) GymColors.Accent else GymColors.Border, RoundedCornerShape(10.dp))
+                            .background(bg)
+                            .border(1.dp, border, RoundedCornerShape(10.dp))
                             .clickable { onSelect(p) }
                             .padding(vertical = 12.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(p, color = if (active) Color.Black else GymColors.TextMuted, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        Text(p, color = textColor, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -272,6 +315,7 @@ fun DashboardScreen(members: List<Member>, onNavigate: (Screen) -> Unit) {
                 val days = daysBetweenNow(m.expiryMillis)
                 Row(
                     modifier = Modifier
+                        .animateItemPlacement()
                         .fillMaxWidth()
                         .padding(bottom = 8.dp)
                         .clip(RoundedCornerShape(14.dp))
@@ -342,21 +386,32 @@ fun GymAttendanceQrCard() {
 
     if (fullScreen) {
         Dialog(onDismissRequest = { fullScreen = false }) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(Color.White)
-                    .padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+            // Section 17/21: restrained fade + scale entrance, consistent with
+            // the photo viewer's existing custom fade. The QR itself renders
+            // immediately at full opacity of its own bitmap — only the
+            // container animates, so the code stays instantly scannable.
+            var visible by remember { mutableStateOf(false) }
+            LaunchedEffect(Unit) { visible = true }
+            AnimatedVisibility(
+                visible = visible,
+                enter = fadeIn(GymMotion.standardTween()) + androidx.compose.animation.scaleIn(initialScale = 0.94f, animationSpec = GymMotion.standardTween())
             ) {
-                Image(
-                    bitmap = qrBitmap.asImageBitmap(),
-                    contentDescription = "Gym attendance QR code",
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Spacer(Modifier.height(12.dp))
-                Text("MAJOR GYM \u2014 Scan to mark attendance", color = Color.Black, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(Color.White)
+                        .padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Image(
+                        bitmap = qrBitmap.asImageBitmap(),
+                        contentDescription = "Gym attendance QR code",
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Text("MAJOR GYM \u2014 Scan to mark attendance", color = Color.Black, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                }
             }
         }
     }
@@ -364,17 +419,40 @@ fun GymAttendanceQrCard() {
 
 @Composable
 fun StatCard(label: String, value: String, modifier: Modifier = Modifier, onClick: (() -> Unit)? = null) {
+    // Section 7: count up rather than instantly replacing the digits, but
+    // only animate when the underlying number actually changed — a
+    // non-numeric value (shouldn't happen here, but defensively) just
+    // displays as-is instead of animating from 0.
+    val intValue = value.toIntOrNull()
+    val displayText = if (intValue != null) {
+        val animated by animateIntAsState(
+            targetValue = intValue,
+            animationSpec = GymMotion.standardTween(),
+            label = "statCardCount"
+        )
+        animated.toString()
+    } else value
+
+    // Priority 3: a very subtle press scale on clickable stat cards, same
+    // restrained treatment as the primary CTA buttons — only when the card
+    // is actually clickable.
+    val cardInteractionSource = remember { MutableInteractionSource() }
     Column(
         modifier = modifier
             .clip(RoundedCornerShape(16.dp))
             .background(GymColors.SurfaceCard)
             .border(1.dp, GymColors.Border, RoundedCornerShape(16.dp))
-            .let { if (onClick != null) it.clickable { onClick() } else it }
+            .let {
+                if (onClick != null)
+                    it.clickable(interactionSource = cardInteractionSource, indication = null) { onClick() }
+                        .gymPressScale(cardInteractionSource)
+                else it
+            }
             .padding(16.dp)
     ) {
         Text(label.uppercase(), color = GymColors.TextFaint, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
         Spacer(Modifier.height(8.dp))
-        Text(value, color = GymColors.Accent, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
+        Text(displayText, color = GymColors.Accent, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
     }
 }
 
@@ -402,8 +480,8 @@ fun MembersScreen(members: List<Member>, onNavigate: (Screen) -> Unit) {
         )
         Spacer(Modifier.height(14.dp))
         LazyColumn(contentPadding = PaddingValues(bottom = 90.dp)) {
-            items(filtered) { m ->
-                MemberRow(m, onNavigate)
+            items(filtered, key = { it.id }) { m ->
+                MemberRow(m, onNavigate, Modifier.animateItemPlacement())
             }
         }
     }
@@ -417,10 +495,10 @@ fun MembersScreen(members: List<Member>, onNavigate: (Screen) -> Unit) {
  * and the exact same profile/renew navigation, instead of a second copy.
  */
 @Composable
-fun MemberRow(m: Member, onNavigate: (Screen) -> Unit) {
+fun MemberRow(m: Member, onNavigate: (Screen) -> Unit, modifier: Modifier = Modifier) {
     val status = statusOf(m.expiryMillis)
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .padding(bottom = 10.dp)
             .clip(RoundedCornerShape(16.dp))
@@ -576,7 +654,11 @@ fun AddEditMemberScreen(vm: MembersViewModel, existing: Member?, onNavigate: (Sc
                 modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(10.dp), colors = gymFieldColors(),
                 isError = phoneTaken
             )
-            if (phoneTaken) {
+            AnimatedVisibility(
+                visible = phoneTaken,
+                enter = fadeIn(GymMotion.standardTween()) + expandVertically(GymMotion.standardTween()),
+                exit = fadeOut(GymMotion.fastTween()) + shrinkVertically(GymMotion.fastTween())
+            ) {
                 Text(
                     "This phone number is already registered.",
                     color = GymColors.Danger, fontSize = 11.sp, modifier = Modifier.padding(top = 4.dp)
@@ -596,7 +678,11 @@ fun AddEditMemberScreen(vm: MembersViewModel, existing: Member?, onNavigate: (Sc
                 modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(10.dp), colors = gymFieldColors(),
                 isError = idProofError
             )
-            if (idProofError) {
+            AnimatedVisibility(
+                visible = idProofError,
+                enter = fadeIn(GymMotion.standardTween()) + expandVertically(GymMotion.standardTween()),
+                exit = fadeOut(GymMotion.fastTween()) + shrinkVertically(GymMotion.fastTween())
+            ) {
                 Text(
                     "Only letters and numbers are allowed.",
                     color = GymColors.Danger, fontSize = 11.sp, modifier = Modifier.padding(top = 4.dp)
@@ -693,6 +779,7 @@ fun AddEditMemberScreen(vm: MembersViewModel, existing: Member?, onNavigate: (Sc
         }
         Spacer(Modifier.height(20.dp))
 
+        val saveInteractionSource = remember { MutableInteractionSource() }
         Button(
             onClick = {
                 val feeVal = fee.toDouble()
@@ -720,7 +807,8 @@ fun AddEditMemberScreen(vm: MembersViewModel, existing: Member?, onNavigate: (Sc
             enabled = valid,
             colors = ButtonDefaults.buttonColors(containerColor = GymColors.Accent, disabledContainerColor = GymColors.SurfaceCard),
             shape = RoundedCornerShape(12.dp),
-            modifier = Modifier.fillMaxWidth().height(50.dp)
+            interactionSource = saveInteractionSource,
+            modifier = Modifier.fillMaxWidth().height(50.dp).gymPressScale(saveInteractionSource)
         ) {
             Text(if (existing == null) "Add Member" else "Save Changes", fontWeight = FontWeight.Bold, color = if (valid) Color.Black else GymColors.TextFaint, fontSize = 15.sp)
         }
@@ -1050,6 +1138,7 @@ fun RenewScreen(member: Member, vm: MembersViewModel, onNavigate: (Screen) -> Un
             Text(formatDate(newExpiry), color = GymColors.Success, fontWeight = FontWeight.Bold, fontSize = 13.sp)
         }
         Spacer(Modifier.height(20.dp))
+        val renewInteractionSource = remember { MutableInteractionSource() }
         Button(
             onClick = {
                 val feeVal = fee.toDoubleOrNull() ?: 0.0
@@ -1066,7 +1155,8 @@ fun RenewScreen(member: Member, vm: MembersViewModel, onNavigate: (Screen) -> Un
             },
             colors = ButtonDefaults.buttonColors(containerColor = GymColors.Accent),
             shape = RoundedCornerShape(12.dp),
-            modifier = Modifier.fillMaxWidth().height(50.dp)
+            interactionSource = renewInteractionSource,
+            modifier = Modifier.fillMaxWidth().height(50.dp).gymPressScale(renewInteractionSource)
         ) {
             Text("Confirm Renewal", fontWeight = FontWeight.Bold, color = Color.Black, fontSize = 15.sp)
         }
@@ -1081,66 +1171,102 @@ fun RenewalSuccessScreen(member: Member, justRenewed: Boolean = false, onNavigat
     val qrBitmap = remember(member.qrToken) { QrUtils.memberQrBitmap(member) }
     val valid = QrUtils.isTokenValid(member)
 
+    // Section 15: same premium staggered treatment as registration success,
+    // for consistency (checkmark -> message -> QR -> actions).
+    var showCheck by remember { mutableStateOf(false) }
+    var showMessage by remember { mutableStateOf(false) }
+    var showQr by remember { mutableStateOf(false) }
+    var showActions by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        showCheck = true
+        delay(80)
+        showMessage = true
+        delay(80)
+        showQr = true
+        delay(100)
+        showActions = true
+    }
+
     Column(
         modifier = Modifier.fillMaxSize().padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = GymColors.Success, modifier = Modifier.size(52.dp))
+        AnimatedVisibility(
+            visible = showCheck,
+            enter = androidx.compose.animation.scaleIn(animationSpec = spring(dampingRatio = 0.6f, stiffness = 380f)) + fadeIn(GymMotion.standardTween())
+        ) {
+            Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = GymColors.Success, modifier = Modifier.size(52.dp))
+        }
         Spacer(Modifier.height(12.dp))
-        Text(if (justRenewed) "MEMBERSHIP RENEWED" else "QR UPDATED", color = GymColors.Text, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, letterSpacing = 0.5.sp)
-        Text(member.name, color = GymColors.TextMuted, fontSize = 14.sp, modifier = Modifier.padding(top = 4.dp))
+        AnimatedVisibility(visible = showMessage, enter = fadeIn(GymMotion.standardTween()) + expandVertically(GymMotion.standardTween())) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(if (justRenewed) "MEMBERSHIP RENEWED" else "QR UPDATED", color = GymColors.Text, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, letterSpacing = 0.5.sp)
+                Text(member.name, color = GymColors.TextMuted, fontSize = 14.sp, modifier = Modifier.padding(top = 4.dp))
+            }
+        }
         Spacer(Modifier.height(24.dp))
 
-        Box(
-            modifier = Modifier
-                .size(220.dp)
-                .clip(RoundedCornerShape(16.dp))
-                .background(Color.White)
-                .padding(16.dp),
-            contentAlignment = Alignment.Center
+        AnimatedVisibility(
+            visible = showQr,
+            enter = fadeIn(GymMotion.standardTween()) + androidx.compose.animation.scaleIn(initialScale = 0.92f, animationSpec = GymMotion.standardTween())
         ) {
-            Image(bitmap = qrBitmap.asImageBitmap(), contentDescription = "Member QR code")
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Box(
+                    modifier = Modifier
+                        .size(220.dp)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(Color.White)
+                        .padding(16.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Image(bitmap = qrBitmap.asImageBitmap(), contentDescription = "Member QR code")
+                }
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    if (valid) "Valid until ${formatDateTime(member.qrTokenExpiryMillis)}" else "Expired \u2014 regenerate before sharing",
+                    color = if (valid) GymColors.TextFaint else GymColors.Danger,
+                    fontSize = 11.sp
+                )
+                Text(
+                    "This QR replaces any earlier one \u2014 old QRs no longer work.",
+                    color = GymColors.TextFaint, fontSize = 10.sp, modifier = Modifier.padding(top = 4.dp)
+                )
+            }
         }
-        Spacer(Modifier.height(10.dp))
-        Text(
-            if (valid) "Valid until ${formatDateTime(member.qrTokenExpiryMillis)}" else "Expired \u2014 regenerate before sharing",
-            color = if (valid) GymColors.TextFaint else GymColors.Danger,
-            fontSize = 11.sp
-        )
-        Text(
-            "This QR replaces any earlier one \u2014 old QRs no longer work.",
-            color = GymColors.TextFaint, fontSize = 10.sp, modifier = Modifier.padding(top = 4.dp)
-        )
         Spacer(Modifier.height(28.dp))
 
-        if (justRenewed) {
-            Button(
-                onClick = { WhatsAppShare.shareRenewal(context, member) },
-                colors = ButtonDefaults.buttonColors(containerColor = GymColors.Accent),
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.fillMaxWidth().height(50.dp)
-            ) {
-                Icon(Icons.Filled.Share, contentDescription = null, tint = Color.Black)
-                Spacer(Modifier.width(8.dp))
-                Text("Share Renewal Update", fontWeight = FontWeight.Bold, color = Color.Black, fontSize = 15.sp)
-            }
-            Spacer(Modifier.height(12.dp))
-            OutlinedButton(
-                onClick = { onNavigate(Screen.Profile(member.id)) },
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.fillMaxWidth().height(50.dp)
-            ) {
-                Text("Done", color = GymColors.Text)
-            }
-        } else {
-            Button(
-                onClick = { onNavigate(Screen.Profile(member.id)) },
-                colors = ButtonDefaults.buttonColors(containerColor = GymColors.Accent),
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.fillMaxWidth().height(50.dp)
-            ) {
-                Text("Done", fontWeight = FontWeight.Bold, color = Color.Black, fontSize = 15.sp)
+        AnimatedVisibility(visible = showActions, enter = fadeIn(GymMotion.standardTween()) + expandVertically(GymMotion.standardTween())) {
+            if (justRenewed) {
+                Column {
+                    Button(
+                        onClick = { WhatsAppShare.shareRenewal(context, member) },
+                        colors = ButtonDefaults.buttonColors(containerColor = GymColors.Accent),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth().height(50.dp)
+                    ) {
+                        Icon(Icons.Filled.Share, contentDescription = null, tint = Color.Black)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Share Renewal Update", fontWeight = FontWeight.Bold, color = Color.Black, fontSize = 15.sp)
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    OutlinedButton(
+                        onClick = { onNavigate(Screen.Profile(member.id)) },
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth().height(50.dp)
+                    ) {
+                        Text("Done", color = GymColors.Text)
+                    }
+                }
+            } else {
+                Button(
+                    onClick = { onNavigate(Screen.Profile(member.id)) },
+                    colors = ButtonDefaults.buttonColors(containerColor = GymColors.Accent),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth().height(50.dp)
+                ) {
+                    Text("Done", fontWeight = FontWeight.Bold, color = Color.Black, fontSize = 15.sp)
+                }
             }
         }
     }
@@ -1266,6 +1392,7 @@ fun BackupScreen(vm: MembersViewModel) {
                     Spacer(Modifier.height(10.dp))
                 }
 
+                val shareInteractionSource = remember { MutableInteractionSource() }
                 Button(
                     onClick = {
                         sharing = true
@@ -1284,8 +1411,19 @@ fun BackupScreen(vm: MembersViewModel) {
                     enabled = !sharing,
                     colors = ButtonDefaults.buttonColors(containerColor = GymColors.Accent, disabledContainerColor = GymColors.Surface2),
                     shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier.fillMaxWidth().height(44.dp)
-                ) { Text(if (sharing) "Preparing\u2026" else "Share Backup", fontWeight = FontWeight.Bold, color = Color.Black) }
+                    interactionSource = shareInteractionSource,
+                    modifier = Modifier.fillMaxWidth().height(44.dp).gymPressScale(shareInteractionSource)
+                ) {
+                    // Section 16: idle -> working label swap communicated with a
+                    // short cross-fade rather than an instant text replace.
+                    AnimatedContent(
+                        targetState = sharing,
+                        transitionSpec = { fadeIn(GymMotion.standardTween()) togetherWith fadeOut(GymMotion.fastTween()) },
+                        label = "shareBackupContent"
+                    ) { isSharing ->
+                        Text(if (isSharing) "Preparing\u2026" else "Share Backup", fontWeight = FontWeight.Bold, color = Color.Black)
+                    }
+                }
 
                 shareMessage?.let {
                     Text(it, color = GymColors.TextMuted, fontSize = 11.sp, modifier = Modifier.padding(top = 8.dp))

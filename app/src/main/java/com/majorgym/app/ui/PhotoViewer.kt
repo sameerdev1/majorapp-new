@@ -1,6 +1,7 @@
 package com.majorgym.app.ui
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -27,6 +28,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -42,6 +44,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.io.File
 
 /**
@@ -92,7 +95,31 @@ fun FullScreenPhotoViewer(photoPath: String?, memberName: String, onDismiss: () 
 
             if (hasPhoto) {
                 var scale by remember { mutableStateOf(1f) }
+                // Section 22 (optional, only added because it's low-risk):
+                // `offset` stays a plain, synchronously-updated state for
+                // panning — identical zero-lag real-time feel to before, so
+                // active pinch/pan is completely unaffected. `springProgress`
+                // is only used for the brief, occasional moment the image
+                // needs to ease back to center (zoom released back to 1x, or
+                // double-tap reset) instead of snapping there instantly.
                 var offset by remember { mutableStateOf(Offset.Zero) }
+                var springStartOffset by remember { mutableStateOf(Offset.Zero) }
+                val springProgress = remember { Animatable(1f) }
+                val gestureScope = rememberCoroutineScope()
+
+                fun springBackToCenter() {
+                    if (offset == Offset.Zero) return
+                    springStartOffset = offset
+                    gestureScope.launch {
+                        springProgress.snapTo(1f)
+                        springProgress.animateTo(
+                            targetValue = 0f,
+                            animationSpec = spring(dampingRatio = 0.75f, stiffness = 400f)
+                        ) {
+                            offset = springStartOffset * value
+                        }
+                    }
+                }
 
                 AsyncImage(
                     model = File(photoPath!!),
@@ -110,7 +137,11 @@ fun FullScreenPhotoViewer(photoPath: String?, memberName: String, onDismiss: () 
                             detectTransformGestures { _, pan, zoom, _ ->
                                 val newScale = (scale * zoom).coerceIn(1f, 5f)
                                 scale = newScale
-                                offset = if (newScale <= 1f) Offset.Zero else offset + pan
+                                if (newScale <= 1f) {
+                                    springBackToCenter()
+                                } else {
+                                    offset += pan
+                                }
                             }
                         }
                         .pointerInput(Unit) {
@@ -118,7 +149,7 @@ fun FullScreenPhotoViewer(photoPath: String?, memberName: String, onDismiss: () 
                                 onDoubleTap = {
                                     if (scale > 1f) {
                                         scale = 1f
-                                        offset = Offset.Zero
+                                        springBackToCenter()
                                     } else {
                                         scale = 2.5f
                                     }

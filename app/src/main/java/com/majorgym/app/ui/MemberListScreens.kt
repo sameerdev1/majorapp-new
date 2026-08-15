@@ -82,7 +82,7 @@ fun FilteredMembersScreen(
         } else {
             LazyColumn(contentPadding = PaddingValues(bottom = 90.dp)) {
                 items(shown, key = { it.id }) { m ->
-                    MemberRow(m, onNavigate)
+                    MemberRow(m, onNavigate, Modifier.animateItemPlacement())
                 }
             }
         }

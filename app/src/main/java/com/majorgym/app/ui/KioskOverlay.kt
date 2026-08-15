@@ -2,8 +2,15 @@ package com.majorgym.app.ui
 
 import android.content.Context
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -97,7 +104,17 @@ fun rememberKioskCoordinator(
  */
 @Composable
 fun KioskResultOverlay(phase: KioskPhase, member: Member?) {
-    AnimatedVisibility(visible = phase != KioskPhase.IDLE, enter = fadeIn(), exit = fadeOut()) {
+    // Section 9: this must appear almost immediately (staff read it at a
+    // glance) so entrance stays short — fade + a small scale-up, never a
+    // slow reveal. Purely visual: KioskBus/the service already resolved the
+    // scan result before this composable is even asked to show it.
+    AnimatedVisibility(
+        visible = phase != KioskPhase.IDLE,
+        enter = fadeIn(tween(GymMotion.Fast, easing = GymMotion.StandardEasing)) +
+            scaleIn(initialScale = 0.92f, animationSpec = tween(GymMotion.Fast, easing = GymMotion.StandardEasing)),
+        exit = fadeOut(tween(GymMotion.Fast, easing = GymMotion.StandardEasing)) +
+            scaleOut(targetScale = 0.96f, animationSpec = tween(GymMotion.Fast, easing = GymMotion.StandardEasing))
+    ) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -183,5 +200,48 @@ fun KioskResultOverlay(phase: KioskPhase, member: Member?) {
 @Composable
 private fun PersonPlaceholder() {
     Icon(Icons.Filled.Person, null, tint = GymColors.Accent, modifier = Modifier.size(64.dp))
+}
+
+/**
+ * Priority 3 (optional): an extremely subtle accent dot near the bottom of
+ * the screen indicating the kiosk is listening while idle. This is purely
+ * decorative — it does not read scanner/service state itself, it only
+ * reflects the KioskPhase already computed elsewhere (IDLE = nothing being
+ * shown right now), so it can never desync from or delay the actual kiosk
+ * logic. Respects reduced motion: the loop is skipped and the dot renders
+ * as a static, still-faint mark instead.
+ */
+@Composable
+fun KioskIdleIndicator(visible: Boolean, modifier: Modifier = Modifier) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(tween(GymMotion.Standard, easing = GymMotion.StandardEasing)),
+        exit = fadeOut(tween(GymMotion.Fast, easing = GymMotion.StandardEasing)),
+        modifier = modifier
+    ) {
+        val reducedMotion = LocalReducedMotion.current
+        val alpha = if (reducedMotion) {
+            0.35f
+        } else {
+            val pulse = rememberInfiniteTransition(label = "kioskIdlePulse")
+            val animatedAlpha by pulse.animateFloat(
+                initialValue = 0.18f,
+                targetValue = 0.42f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(GymMotion.Ambient, easing = LinearEasing),
+                    repeatMode = RepeatMode.Reverse
+                ),
+                label = "kioskIdlePulseAlpha"
+            )
+            animatedAlpha
+        }
+        Box(
+            modifier = Modifier
+                .padding(16.dp)
+                .size(6.dp)
+                .clip(CircleShape)
+                .background(GymColors.Accent.copy(alpha = alpha))
+        )
+    }
 }
 

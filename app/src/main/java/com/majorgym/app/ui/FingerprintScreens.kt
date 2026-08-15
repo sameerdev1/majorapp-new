@@ -3,6 +3,19 @@ package com.majorgym.app.ui
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -19,6 +32,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -260,21 +274,81 @@ fun EnrollFingerprintScreen(member: Member, vm: MembersViewModel, returnTo: Scre
         ) {
             Text(member.name, color = GymColors.Text, fontSize = 18.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(24.dp))
-            Box(
-                modifier = Modifier
-                    .size(130.dp)
-                    .clip(CircleShape)
-                    .background(if (done) GymColors.Accent else GymColors.SurfaceCard)
-                    .border(2.dp, if (done) GymColors.Accent else GymColors.Border, CircleShape)
-                    .clickable(enabled = !done && !scanInFlight) { runScan() },
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    if (done) Icons.Filled.CheckCircle else Icons.Filled.Fingerprint,
-                    null,
-                    tint = if (done) Color.Black else GymColors.Accent,
-                    modifier = Modifier.size(64.dp)
-                )
+
+            // Section 19/20: a very small attention cue on match failure — a
+            // horizontal shake of just the icon, not the screen. Purely
+            // visual; runs independently of the scan/retry logic above.
+            val shakeOffset = remember { Animatable(0f) }
+            LaunchedEffect(status) {
+                if (status == ScanStatus.NOT_MATCHED || status == ScanStatus.FAILED) {
+                    val amplitude = 10f
+                    for (target in floatArrayOf(-amplitude, amplitude, -amplitude * 0.6f, amplitude * 0.6f, 0f)) {
+                        shakeOffset.animateTo(target, animationSpec = tween(GymMotion.Fast / 2, easing = GymMotion.StandardEasing))
+                    }
+                }
+            }
+
+            Box(contentAlignment = Alignment.Center) {
+                // Section 18: subtle breathing/pulsing ring while waiting for a
+                // finger on the scanner — communicates "ready and listening"
+                // without ever touching capture/hardware timing, which all
+                // still runs exactly as before (see runScan() above).
+                // Decorative-only, so it's skipped under reduced motion
+                // (section 24) rather than looping indefinitely regardless.
+                if (status == ScanStatus.WAITING && !done && !LocalReducedMotion.current) {
+                    val pulse = rememberInfiniteTransition(label = "fingerprintPulse")
+                    val pulseScale by pulse.animateFloat(
+                        initialValue = 1f,
+                        targetValue = 1.18f,
+                        animationSpec = infiniteRepeatable(
+                            animation = tween(GymMotion.Ambient, easing = LinearEasing),
+                            repeatMode = RepeatMode.Restart
+                        ),
+                        label = "fingerprintPulseScale"
+                    )
+                    val pulseAlpha by pulse.animateFloat(
+                        initialValue = 0.45f,
+                        targetValue = 0f,
+                        animationSpec = infiniteRepeatable(
+                            animation = tween(GymMotion.Ambient, easing = LinearEasing),
+                            repeatMode = RepeatMode.Restart
+                        ),
+                        label = "fingerprintPulseAlpha"
+                    )
+                    Box(
+                        modifier = Modifier
+                            .size(130.dp)
+                            .graphicsLayer { scaleX = pulseScale; scaleY = pulseScale; alpha = pulseAlpha }
+                            .clip(CircleShape)
+                            .border(2.dp, GymColors.Accent, CircleShape)
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .graphicsLayer { translationX = shakeOffset.value }
+                        .size(130.dp)
+                        .clip(CircleShape)
+                        .background(if (done) GymColors.Accent else GymColors.SurfaceCard)
+                        .border(2.dp, if (done) GymColors.Accent else GymColors.Border, CircleShape)
+                        .clickable(enabled = !done && !scanInFlight) { runScan() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    AnimatedContent(
+                        targetState = done,
+                        transitionSpec = {
+                            (scaleIn(animationSpec = spring(dampingRatio = 0.55f, stiffness = 380f)) + fadeIn(GymMotion.fastTween()))
+                                .togetherWith(fadeOut(GymMotion.fastTween()))
+                        },
+                        label = "fingerprintIconSwap"
+                    ) { isDone ->
+                        Icon(
+                            if (isDone) Icons.Filled.CheckCircle else Icons.Filled.Fingerprint,
+                            null,
+                            tint = if (isDone) Color.Black else GymColors.Accent,
+                            modifier = Modifier.size(64.dp)
+                        )
+                    }
+                }
             }
             Spacer(Modifier.height(24.dp))
             Text(
