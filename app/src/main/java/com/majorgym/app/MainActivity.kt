@@ -185,6 +185,7 @@ class MainActivity : ComponentActivity() {
                                     members.filter { com.majorgym.app.data.statusOf(it.expiryMillis) == com.majorgym.app.data.MemberStatus.EXPIRED },
                                     showSearch = false, emptyText = "No expired members."
                                 ) { screen = it }
+                                Screen.Attendance -> AttendanceScreen { screen = it }
                                 is Screen.EnrollFingerprint -> {
                                     val m = members.find { it.id == s.id }
                                     if (m != null) EnrollFingerprintScreen(m, vm, s.returnTo) { screen = it }

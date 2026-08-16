@@ -28,6 +28,12 @@ sealed class Screen {
     data object ActiveMembers : Screen()
     data object ExpiringMembers : Screen()
     data object ExpiredMembers : Screen()
+    /** The gym's fixed check-in QR (display/share only — there is no in-app
+     *  camera scanner). Reached via the Dashboard's "Open Attendance
+     *  Scanner" button instead of being permanently shown on the Dashboard.
+     *  Renders the same [com.majorgym.app.ui.GymAttendanceQrCard] as before —
+     *  no duplicate QR/attendance implementation was created. */
+    data object Attendance : Screen()
     /** Enroll/re-enroll a member's fingerprint on the connected SecuGen USB
      *  scanner. Reachable from Profile. [returnTo] is where "Done"/"Back" goes —
      *  Registered right after sign-up, or Profile when re-enrolling later. */

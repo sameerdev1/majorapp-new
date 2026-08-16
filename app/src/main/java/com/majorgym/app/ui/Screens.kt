@@ -295,10 +295,6 @@ fun DashboardScreen(members: List<Member>, onNavigate: (Screen) -> Unit) {
             Spacer(Modifier.height(16.dp))
         }
         item {
-            GymAttendanceQrCard()
-            Spacer(Modifier.height(14.dp))
-        }
-        item {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(bottom = 10.dp)) {
                 StatCard("Total Members", members.size.toString(), Modifier.weight(1f)) { onNavigate(Screen.TotalMembers) }
                 StatCard("Active", active.toString(), Modifier.weight(1f)) { onNavigate(Screen.ActiveMembers) }
@@ -307,6 +303,38 @@ fun DashboardScreen(members: List<Member>, onNavigate: (Screen) -> Unit) {
                 StatCard("Expiring Soon", expiring.toString(), Modifier.weight(1f)) { onNavigate(Screen.ExpiringMembers) }
                 StatCard("Expired", expired.toString(), Modifier.weight(1f)) { onNavigate(Screen.ExpiredMembers) }
             }
+        }
+        item {
+            Text("ATTENDANCE", color = GymColors.TextFaint, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp, modifier = Modifier.padding(bottom = 8.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(GymColors.SurfaceCard)
+                    .border(1.dp, GymColors.Border, RoundedCornerShape(16.dp))
+                    .clickable { onNavigate(Screen.Attendance) }
+                    .padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(GymColors.Accent.copy(alpha = 0.15f))
+                        .padding(10.dp)
+                ) {
+                    Icon(Icons.Filled.QrCodeScanner, contentDescription = null, tint = GymColors.Accent, modifier = Modifier.size(22.dp))
+                }
+                Spacer(Modifier.width(14.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("Open Attendance Scanner", color = GymColors.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "Scan member QR codes and manage check-ins",
+                        color = GymColors.TextFaint, fontSize = 12.sp, modifier = Modifier.padding(top = 2.dp)
+                    )
+                }
+                Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = GymColors.TextFaint)
+            }
+            Spacer(Modifier.height(14.dp))
         }
         if (attention.isNotEmpty()) {
             item {
@@ -344,7 +372,28 @@ fun DashboardScreen(members: List<Member>, onNavigate: (Screen) -> Unit) {
 }
 
 /**
- * Permanent attendance QR, always visible on the Dashboard (add-on request).
+ * Reached from the Dashboard's "Open Attendance Scanner" card. Just a thin
+ * page shell (header + back) around the existing [GymAttendanceQrCard] —
+ * the QR generation, display, and share logic is untouched and not
+ * duplicated here.
+ */
+@Composable
+fun AttendanceScreen(onNavigate: (Screen) -> Unit) {
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 16.dp)) {
+            IconButton(onClick = { onNavigate(Screen.Dashboard) }) {
+                Icon(Icons.Filled.ArrowBack, contentDescription = "Back", tint = GymColors.Text)
+            }
+            Spacer(Modifier.width(4.dp))
+            Text("Attendance", color = GymColors.Text, fontWeight = FontWeight.Bold, fontSize = 20.sp)
+        }
+        GymAttendanceQrCard()
+    }
+}
+
+/**
+ * The gym's fixed attendance QR: display + share only, unchanged. Reached
+ * via [AttendanceScreen] instead of always rendering on the Dashboard.
  */
 @Composable
 fun GymAttendanceQrCard() {
