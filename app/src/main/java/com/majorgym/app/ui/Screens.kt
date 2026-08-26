@@ -660,6 +660,12 @@ fun AddEditMemberScreen(vm: MembersViewModel, existing: Member?, onNavigate: (Sc
     Column(
         modifier = Modifier
             .fillMaxSize()
+            // Keyboard-aware scrolling: keeps the focused field (and, once the
+            // user scrolls, the final Save/Add button) reachable above the IME
+            // instead of the keyboard simply covering the bottom of the screen.
+            // Paired with android:windowSoftInputMode="adjustResize" on the
+            // activity so the inset this reserves space for is accurate.
+            .imePadding()
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 16.dp)
             .padding(top = 20.dp, bottom = 90.dp)
@@ -851,7 +857,14 @@ fun AddEditMemberScreen(vm: MembersViewModel, existing: Member?, onNavigate: (Sc
                     qrTokenExpiryMillis = existing?.qrTokenExpiryMillis
                         ?: (System.currentTimeMillis() + QrUtils.TOKEN_VALIDITY_MILLIS),
                     idProof = idProof,
-                    idProofPhotoPath = idProofPhotoPath
+                    idProofPhotoPath = idProofPhotoPath,
+                    // Bug fix: this constructor previously omitted fingerprintTemplate,
+                    // so it silently fell back to the Member() default of null on every
+                    // save — wiping out an enrolled fingerprint any time the member was
+                    // edited. Carry the existing template forward untouched; it is only
+                    // ever changed via the dedicated enroll/replace/remove fingerprint
+                    // actions (see MembersViewModel.saveFingerprintTemplate / removeFingerprintTemplate).
+                    fingerprintTemplate = existing?.fingerprintTemplate
                 )
                 vm.save(member)
                 if (existing == null) onNavigate(Screen.Registered(id, passkey)) else onNavigate(Screen.Profile(id))
