@@ -1368,7 +1368,20 @@ fun BackupScreen(vm: MembersViewModel) {
         }
     }
 
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp).padding(top = 20.dp, bottom = 90.dp)) {
+    // Section 17 (non-negotiable): the whole screen must scroll, and it must
+    // keep scrolling correctly as more sections get added later — so this
+    // wraps the entire content area (existing cards + the new Google Drive
+    // section below) in a single Column + verticalScroll, with no
+    // fixed-height parent anywhere inside it, exactly the way BottomNav's own
+    // fixed overlay (drawn separately in MainActivity, not part of this
+    // Column) already coexists with scrollable screens elsewhere in the app.
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp)
+            .padding(top = 20.dp, bottom = 90.dp)
+    ) {
         Text("BACKUP", color = GymColors.Text, fontWeight = FontWeight.ExtraBold, fontSize = 22.sp, letterSpacing = 0.5.sp)
         Spacer(Modifier.height(4.dp))
         Text("Export your gym records, or restore them on a new phone.", color = GymColors.TextMuted, fontSize = 13.sp)
@@ -1495,5 +1508,10 @@ fun BackupScreen(vm: MembersViewModel) {
                 }
             }
         }
+
+        // New Google Drive automatic backup feature — everything above this
+        // point is the existing, unmodified manual Export/Restore/Share Backup
+        // UI (spec section 21: must keep working exactly as before).
+        DriveBackupSection(vm)
     }
 }
