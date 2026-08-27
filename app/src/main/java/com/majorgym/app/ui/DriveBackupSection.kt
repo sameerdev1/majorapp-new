@@ -108,12 +108,26 @@ fun DriveBackupSection(vm: MembersViewModel) {
     val signInLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         val data: Intent? = result.data
         val task = GoogleSignIn.getSignedInAccountFromIntent(data)
-        val account = runCatching { task.getResult(com.google.android.gms.common.api.ApiException::class.java) }.getOrNull()
-        if (account != null && account.email != null) {
-            vm.driveBackup.onAccountConnected(account)
-            actionMessage = "Google Drive connected."
-        } else {
-            actionMessage = "Google sign-in was cancelled."
+        try {
+            val account = task.getResult(com.google.android.gms.common.api.ApiException::class.java)
+            if (account != null && account.email != null) {
+                vm.driveBackup.onAccountConnected(account)
+                actionMessage = "Google Drive connected."
+            } else {
+                actionMessage = "Google sign-in returned no account."
+            }
+        } catch (e: com.google.android.gms.common.api.ApiException) {
+            // Surface the real status code instead of a blanket "cancelled" —
+            // 12501 is a genuine user cancel; anything else (10 = DEVELOPER_ERROR,
+            // 7 = NETWORK_ERROR, 8 = INTERNAL_ERROR, etc.) is a config/setup
+            // problem, not something the user did. Logged for adb logcat too.
+            android.util.Log.e("DriveSignIn", "Sign-in failed, statusCode=${e.statusCode}", e)
+            actionMessage = when (e.statusCode) {
+                12501 -> "Google sign-in was cancelled."
+                10 -> "Sign-in setup error (code 10 / DEVELOPER_ERROR). Check the OAuth client's SHA-1 fingerprint and package name in Google Cloud Console."
+                7 -> "No internet connection during sign-in."
+                else -> "Google sign-in failed (code ${e.statusCode}). See logcat tag DriveSignIn for details."
+            }
         }
     }
 
