@@ -134,38 +134,72 @@ class Repository(private val context: Context) {
     }
 
     // ---------- Share Backup File (Feature 1) ----------
+    //
+    // Now shares the newest ZIP this app has produced by ANY means (Backup
+    // Now, Export Backup, or an automatic backup) rather than keeping its own
+    // separate JSON copy - the owner should only ever see/share the ZIP.
 
-    /**
-     * Android's Export Backup button uses the system file picker (SAF), so the
-     * app has no reliable way to later "find" wherever the user chose to save
-     * it — modern Android doesn't allow searching the filesystem freely. So
-     * Share Backup works against its own app-private folder instead: every
-     * backup (from Export Backup, or generated here on the spot) also gets a
-     * timestamped copy saved here, which this folder can always enumerate.
-     */
-    private fun internalBackupsDir(): File = File(context.filesDir, "backups").apply { mkdirs() }
-
-    /** The newest backup this app has ever produced, or null if there isn't one yet. */
+    /** The newest backup this app has ever produced, from either the manual
+     *  or automatic backup folder, or null if there isn't one yet. */
     fun latestInternalBackupFile(): File? =
-        internalBackupsDir().listFiles { f -> f.extension == "json" }?.maxByOrNull { it.lastModified() }
+        (listAutoBackups() + manualBackupsDir().listFiles { f -> f.extension == "zip" }.orEmpty())
+            .maxByOrNull { it.lastModified() }
 
-    /** Stashes an already-generated backup JSON (e.g. right after "Export Backup"
-     *  succeeds) so Share Backup can find it later. */
-    fun saveInternalBackupCopy(json: String): File {
-        val file = File(internalBackupsDir(), "backup_${System.currentTimeMillis()}.json")
-        file.writeText(json)
-        return file
-    }
-
-    /** Generates a fresh backup right now and stashes it — used when Share Backup
-     *  is tapped and no backup exists yet at all (spec: never make the owner
-     *  press Export Backup first). */
-    suspend fun createBackupNow(): File {
-        val json = BackupManager.exportJson(context, dao.getAllOnce())
-        return saveInternalBackupCopy(json)
-    }
+    /** Generates a fresh ZIP backup right now and stashes it in the manual
+     *  backups folder - used when Share Backup is tapped and no backup exists
+     *  yet at all (spec: never make the owner press Export Backup first). */
+    suspend fun createBackupNow(): File =
+        BackupService.createZipBackup(context, this, newManualBackupFile(shareTimestampLabel()))
 
     /** What Share Backup actually calls: the latest backup if one exists, otherwise
      *  generates one on the spot. */
     suspend fun getOrCreateLatestBackup(): File = latestInternalBackupFile() ?: createBackupNow()
+
+    private fun shareTimestampLabel(): String =
+        java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd_HHmm"))
+
+    // ---------- Local ZIP backup system (Automatic / Backup Now / Export) ----------
+
+    /** Where scheduled automatic backups live. Separate from [manualBackupsDir]
+     *  so the 30-backup retention policy can only ever touch files it
+     *  created - it never sees, and can never delete, anything from a manual
+     *  "Backup Now" or an exported backup. */
+    private fun autoBackupsDir(): File = File(context.filesDir, "backups/auto").apply { mkdirs() }
+
+    /** Where "Backup Now" saves its local copy. Exempt from automatic
+     *  retention per spec section 5/14 - only [autoBackupsDir] is pruned. */
+    private fun manualBackupsDir(): File = File(context.filesDir, "backups/manual").apply { mkdirs() }
+
+    /** A single overwritten-each-time pre-restore snapshot (section 9) - a
+     *  recovery point on disk, separate from the in-memory rollback safety
+     *  that already comes from [mergeAll]'s atomic DB write. Never shown to
+     *  the owner and never counted toward any retention limit. */
+    private fun safetyBackupFile(): File = File(context.filesDir, "backups/safety_backup.zip")
+
+    fun listAutoBackups(): List<File> =
+        autoBackupsDir().listFiles { f -> f.extension == "zip" }?.sortedByDescending { it.lastModified() } ?: emptyList()
+
+    fun newAutoBackupFile(timestampLabel: String): File =
+        File(autoBackupsDir(), "MajorGym_AutoBackup_$timestampLabel.zip")
+
+    fun newManualBackupFile(timestampLabel: String): File =
+        File(manualBackupsDir(), "MajorGym_Backup_$timestampLabel.zip")
+
+    /** Rolling retention (spec section 5): keeps only the newest [keep]
+     *  automatic backups. Only ever called right after a new automatic backup
+     *  has itself been saved and verified - see [BackupWorker] - so a failed
+     *  backup attempt never reaches this and never costs a prior good backup. */
+    fun pruneAutoBackups(keep: Int = 30) {
+        listAutoBackups().drop(keep).forEach { it.delete() }
+    }
+
+    fun autoBackupStorageBytes(): Long = listAutoBackups().sumOf { it.length() }
+
+    /** Writes a snapshot of the CURRENT (pre-restore) member data to
+     *  [safetyBackupFile] using the exact same generator/compressor the real
+     *  backups use, so it's just as restorable if it's ever needed by hand. */
+    suspend fun writeSafetyBackupSnapshot() {
+        val json = BackupManager.exportJson(context, dao.getAllOnce())
+        BackupZip.write(json, safetyBackupFile())
+    }
 }

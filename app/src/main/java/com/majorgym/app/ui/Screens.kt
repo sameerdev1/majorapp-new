@@ -58,6 +58,8 @@ import com.majorgym.app.Screen
 import com.majorgym.app.data.*
 import java.io.File
 import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 import java.util.UUID
 
 // ---------- Shared bits ----------
@@ -1343,37 +1345,78 @@ fun RenewalSuccessScreen(member: Member, justRenewed: Boolean = false, onNavigat
 fun BackupScreen(vm: MembersViewModel) {
     val context = LocalContext.current
     var message by remember { mutableStateOf<String?>(null) }
+    var messageIsError by remember { mutableStateOf(false) }
     var shareMessage by remember { mutableStateOf<String?>(null) }
     var sharing by remember { mutableStateOf(false) }
+    var exporting by remember { mutableStateOf(false) }
+    var backingUpNow by remember { mutableStateOf(false) }
     var latestBackup by remember { mutableStateOf(vm.latestBackupFile()) }
 
-    fun refreshLatestBackup() { latestBackup = vm.latestBackupFile() }
+    // Automatic-backup status (spec section 12) - re-read whenever this
+    // screen recomposes after a relevant action, since it's plain
+    // SharedPreferences/file-listing state rather than an observed Flow.
+    var autoBackupCount by remember { mutableStateOf(vm.autoBackupCount()) }
+    var autoStorageBytes by remember { mutableStateOf(vm.autoBackupStorageBytes()) }
+    var lastAutoMillis by remember { mutableStateOf(vm.lastAutoBackupMillis()) }
+    var lastAutoSuccess by remember { mutableStateOf(vm.lastAutoBackupSuccess()) }
+    var lastAutoError by remember { mutableStateOf(vm.lastAutoBackupError()) }
 
-    val createDoc = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri: Uri? ->
+    fun refreshLatestBackup() { latestBackup = vm.latestBackupFile() }
+    fun refreshAutoStatus() {
+        autoBackupCount = vm.autoBackupCount()
+        autoStorageBytes = vm.autoBackupStorageBytes()
+        lastAutoMillis = vm.lastAutoBackupMillis()
+        lastAutoSuccess = vm.lastAutoBackupSuccess()
+        lastAutoError = vm.lastAutoBackupError()
+    }
+
+    val createDoc = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri: Uri? ->
         if (uri != null) {
-            vm.exportJson { json ->
-                context.contentResolver.openOutputStream(uri)?.use { it.write(json.toByteArray()) }
-                message = "Backup exported."
-                refreshLatestBackup()
+            exporting = true
+            vm.exportZipBackup { file, error ->
+                exporting = false
+                if (file != null) {
+                    context.contentResolver.openOutputStream(uri)?.use { out -> file.inputStream().use { it.copyTo(out) } }
+                    message = "Backup exported."
+                    messageIsError = false
+                    refreshLatestBackup()
+                } else {
+                    message = "Backup failed\n\n${error ?: "The backup could not be completed."}\n\nYour previous backup has been kept safe."
+                    messageIsError = true
+                }
             }
         }
     }
+    // Accepts both the new ".zip" backups and legacy ".json" backups (section 6/22)
+    // - format is actually detected from file content, not the extension, so this
+    // mime-type filter is just to keep the picker's list relevant, not authoritative.
     val openDoc = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         if (uri != null) {
-            val json = context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
-            if (json != null) {
-                vm.importJson(json)
-                message = "Records restored."
+            vm.importBackup(uri) { outcome ->
+                when (outcome) {
+                    is RestoreOutcome.Success -> {
+                        message = "Records restored."
+                        messageIsError = false
+                        refreshAutoStatus()
+                    }
+                    is RestoreOutcome.InvalidBackup -> {
+                        message = outcome.reason
+                        messageIsError = true
+                    }
+                    is RestoreOutcome.RestoreFailed -> {
+                        message = "Restore failed\n\n${outcome.reason}"
+                        messageIsError = true
+                    }
+                }
             }
         }
     }
 
     // Section 17 (non-negotiable): the whole screen must scroll, and it must
     // keep scrolling correctly as more sections get added later — so this
-    // wraps the entire content area (existing cards + the new Google Drive
-    // section below) in a single Column + verticalScroll, with no
-    // fixed-height parent anywhere inside it, exactly the way BottomNav's own
-    // fixed overlay (drawn separately in MainActivity, not part of this
+    // wraps the entire content area in a single Column + verticalScroll, with
+    // no fixed-height parent anywhere inside it, exactly the way BottomNav's
+    // own fixed overlay (drawn separately in MainActivity, not part of this
     // Column) already coexists with scrollable screens elsewhere in the app.
     Column(
         modifier = Modifier
@@ -1382,11 +1425,91 @@ fun BackupScreen(vm: MembersViewModel) {
             .padding(16.dp)
             .padding(top = 20.dp, bottom = 90.dp)
     ) {
-        Text("BACKUP", color = GymColors.Text, fontWeight = FontWeight.ExtraBold, fontSize = 22.sp, letterSpacing = 0.5.sp)
+        Text("BACKUP & RESTORE", color = GymColors.Text, fontWeight = FontWeight.ExtraBold, fontSize = 22.sp, letterSpacing = 0.5.sp)
         Spacer(Modifier.height(4.dp))
         Text("Export your gym records, or restore them on a new phone.", color = GymColors.TextMuted, fontSize = 13.sp)
         Spacer(Modifier.height(20.dp))
 
+        // ---- Automatic Backup status (spec section 12) ----
+        Card(
+            colors = CardDefaults.cardColors(containerColor = GymColors.SurfaceCard),
+            shape = RoundedCornerShape(16.dp),
+            modifier = Modifier.fillMaxWidth().border(1.dp, GymColors.Border, RoundedCornerShape(16.dp))
+        ) {
+            Column(Modifier.padding(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.Backup, null, tint = GymColors.Accent, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Automatic Backup", color = GymColors.Text, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.weight(1f))
+                    Icon(Icons.Filled.CheckCircle, null, tint = GymColors.Success, modifier = Modifier.size(14.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Enabled", color = GymColors.Success, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                }
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "Runs automatically every night around 11:59 PM and keeps the most recent 30 backups on this device.",
+                    color = GymColors.TextMuted, fontSize = 12.sp
+                )
+                Spacer(Modifier.height(14.dp))
+
+                BackupStatusRow("Last Automatic Backup", if (lastAutoMillis > 0) "${formatDate(lastAutoMillis)} \u2022 ${formatTimeOfDay(lastAutoMillis)}" else "Not yet run")
+                Spacer(Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Status", color = GymColors.TextFaint, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                    if (lastAutoMillis == 0L) {
+                        Text("\u2014", color = GymColors.TextMuted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    } else if (lastAutoSuccess) {
+                        Text("\u2713 Backup successful", color = GymColors.Success, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    } else {
+                        Text("\u2717 Backup failed", color = GymColors.Danger, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+                if (!lastAutoSuccess && lastAutoError != null) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(lastAutoError ?: "", color = GymColors.Danger, fontSize = 11.sp)
+                }
+                Spacer(Modifier.height(8.dp))
+                BackupStatusRow("Automatic Backups", "$autoBackupCount")
+                Spacer(Modifier.height(8.dp))
+                BackupStatusRow("Storage Used", formatBackupSize(autoStorageBytes))
+
+                Spacer(Modifier.height(14.dp))
+                val backupNowInteractionSource = remember { MutableInteractionSource() }
+                Button(
+                    onClick = {
+                        backingUpNow = true
+                        vm.backupNow { file, error ->
+                            backingUpNow = false
+                            refreshAutoStatus()
+                            if (file != null) {
+                                message = "Backup successful."
+                                messageIsError = false
+                                refreshLatestBackup()
+                            } else {
+                                message = "Backup failed\n\n${error ?: "The backup could not be completed."}\n\nYour previous backup has been kept safe."
+                                messageIsError = true
+                            }
+                        }
+                    },
+                    enabled = !backingUpNow,
+                    colors = ButtonDefaults.buttonColors(containerColor = GymColors.Accent, disabledContainerColor = GymColors.Surface2),
+                    shape = RoundedCornerShape(10.dp),
+                    interactionSource = backupNowInteractionSource,
+                    modifier = Modifier.fillMaxWidth().height(44.dp).gymPressScale(backupNowInteractionSource)
+                ) {
+                    AnimatedContent(
+                        targetState = backingUpNow,
+                        transitionSpec = { fadeIn(GymMotion.standardTween()) togetherWith fadeOut(GymMotion.fastTween()) },
+                        label = "backupNowContent"
+                    ) { isRunning ->
+                        Text(if (isRunning) "Backing up\u2026" else "Backup Now", fontWeight = FontWeight.Bold, color = Color.Black)
+                    }
+                }
+            }
+        }
+
+        Spacer(Modifier.height(14.dp))
         Card(
             colors = CardDefaults.cardColors(containerColor = GymColors.SurfaceCard),
             shape = RoundedCornerShape(16.dp),
@@ -1399,14 +1522,28 @@ fun BackupScreen(vm: MembersViewModel) {
                     Text("Export All Records", color = GymColors.Text, fontWeight = FontWeight.Bold)
                 }
                 Spacer(Modifier.height(6.dp))
-                Text("Saves every member, photo, plan and payment history to a file.", color = GymColors.TextMuted, fontSize = 12.sp)
+                Text("Saves every member, photo, plan and payment history to a ZIP file you can store anywhere.", color = GymColors.TextMuted, fontSize = 12.sp)
                 Spacer(Modifier.height(12.dp))
+                val exportInteractionSource = remember { MutableInteractionSource() }
                 Button(
-                    onClick = { createDoc.launch("major-gym-backup.json") },
-                    colors = ButtonDefaults.buttonColors(containerColor = GymColors.Accent),
+                    onClick = {
+                        val label = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd_HHmm"))
+                        createDoc.launch("MajorGym_Backup_$label.zip")
+                    },
+                    enabled = !exporting,
+                    colors = ButtonDefaults.buttonColors(containerColor = GymColors.Accent, disabledContainerColor = GymColors.Surface2),
                     shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier.fillMaxWidth().height(44.dp)
-                ) { Text("Export Backup", fontWeight = FontWeight.Bold, color = Color.Black) }
+                    interactionSource = exportInteractionSource,
+                    modifier = Modifier.fillMaxWidth().height(44.dp).gymPressScale(exportInteractionSource)
+                ) {
+                    AnimatedContent(
+                        targetState = exporting,
+                        transitionSpec = { fadeIn(GymMotion.standardTween()) togetherWith fadeOut(GymMotion.fastTween()) },
+                        label = "exportBackupContent"
+                    ) { isExporting ->
+                        Text(if (isExporting) "Exporting\u2026" else "Export Backup", fontWeight = FontWeight.Bold, color = Color.Black)
+                    }
+                }
             }
         }
         Spacer(Modifier.height(14.dp))
@@ -1422,10 +1559,10 @@ fun BackupScreen(vm: MembersViewModel) {
                     Text("Restore Records", color = GymColors.Text, fontWeight = FontWeight.Bold)
                 }
                 Spacer(Modifier.height(6.dp))
-                Text("Reinstalled the app or switched phones? Load your last backup file.", color = GymColors.TextMuted, fontSize = 12.sp)
+                Text("Reinstalled the app or switched phones? Load your last backup file (.zip or the older .json).", color = GymColors.TextMuted, fontSize = 12.sp)
                 Spacer(Modifier.height(12.dp))
                 OutlinedButton(
-                    onClick = { openDoc.launch(arrayOf("application/json")) },
+                    onClick = { openDoc.launch(arrayOf("application/zip", "application/json", "application/octet-stream")) },
                     shape = RoundedCornerShape(10.dp),
                     modifier = Modifier.fillMaxWidth().height(44.dp)
                 ) {
@@ -1435,7 +1572,12 @@ fun BackupScreen(vm: MembersViewModel) {
         }
         message?.let {
             Spacer(Modifier.height(16.dp))
-            Text(it, color = GymColors.Success, fontSize = 12.sp, modifier = Modifier.align(Alignment.CenterHorizontally))
+            Text(
+                it,
+                color = if (messageIsError) GymColors.Danger else GymColors.Success,
+                fontSize = 12.sp,
+                modifier = Modifier.align(Alignment.CenterHorizontally)
+            )
         }
 
         Spacer(Modifier.height(14.dp))
@@ -1452,8 +1594,8 @@ fun BackupScreen(vm: MembersViewModel) {
                 }
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    "Quickly share your latest MajorGym backup with WhatsApp, Google Drive, Gmail, Telegram, " +
-                        "Bluetooth or any compatible application installed on your phone.",
+                    "Quickly share your latest MajorGym backup with WhatsApp, Gmail, Telegram, " +
+                        "Bluetooth, or any other app installed on your phone.",
                     color = GymColors.TextMuted, fontSize = 12.sp
                 )
                 Spacer(Modifier.height(10.dp))
@@ -1509,5 +1651,14 @@ fun BackupScreen(vm: MembersViewModel) {
             }
         }
 
+    }
+}
+
+/** One label/value row used inside the Automatic Backup status card. */
+@Composable
+private fun BackupStatusRow(label: String, value: String) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(label, color = GymColors.TextFaint, fontSize = 12.sp, modifier = Modifier.weight(1f))
+        Text(value, color = GymColors.Text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
     }
 }

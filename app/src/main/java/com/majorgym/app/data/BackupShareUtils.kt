@@ -6,17 +6,18 @@ import androidx.core.content.FileProvider
 import java.io.File
 
 /**
- * Shares an existing backup JSON file (Feature 1: Share Backup File) through
- * the system share sheet — WhatsApp, Drive, Gmail, Telegram, Bluetooth,
- * whatever the device offers. Uses the same FileProvider already declared in
- * AndroidManifest.xml for QR sharing (see QrShareUtils), just a different
- * internal path (see file_paths.xml's "backups" entry).
+ * Shares an existing backup ZIP file (Feature 1: Share Backup File) through
+ * the system share sheet — whatever the device offers (WhatsApp, Gmail,
+ * Telegram, Bluetooth, a cloud storage app the owner has installed, etc.).
+ * Uses the same FileProvider already declared in AndroidManifest.xml for QR
+ * sharing (see QrShareUtils), just a different internal path (see
+ * file_paths.xml's "backups" entry).
  */
 object BackupShareUtils {
     fun shareBackupFile(context: Context, file: File) {
         val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
         val intent = Intent(Intent.ACTION_SEND).apply {
-            type = "application/json"
+            type = "application/zip"
             putExtra(Intent.EXTRA_STREAM, uri)
             putExtra(Intent.EXTRA_SUBJECT, "MajorGym Backup")
             putExtra(

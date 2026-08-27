@@ -7,10 +7,11 @@ import org.json.JSONObject
 import java.io.File
 
 /**
- * Exports/imports the full gym database - including member photos, embedded as
- * base64 - into a single self-contained JSON file the user can save anywhere
- * (Google Drive, SD card, email) and restore from on a new phone or after a
- * reinstall.
+ * Exports/imports the full gym database - including member photos, embedded
+ * as base64 - into a single self-contained JSON document. This is the "JSON =
+ * actual backup data" layer; [BackupZip]/[BackupService] wrap it into the
+ * ZIP file the owner actually sees, so it can be restored on a new phone or
+ * after a reinstall entirely offline, with no cloud service involved.
  */
 object BackupManager {
 

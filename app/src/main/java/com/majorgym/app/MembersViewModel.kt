@@ -4,11 +4,13 @@ import android.app.Application
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.majorgym.app.data.BackupManager
+import com.majorgym.app.data.BackupService
+import com.majorgym.app.data.BackupStatusPrefs
 import com.majorgym.app.data.Member
 import com.majorgym.app.data.PairedDevice
 import com.majorgym.app.data.PasskeyUtils
 import com.majorgym.app.data.Repository
+import com.majorgym.app.data.RestoreOutcome
 import com.majorgym.app.data.SyncManager
 import com.majorgym.app.data.SyncOutcome
 import com.majorgym.app.data.SyncPrefs
@@ -16,11 +18,15 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.io.File
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 
 class MembersViewModel(app: Application) : AndroidViewModel(app) {
     private val repo = Repository(app)
     private val syncPrefs = SyncPrefs(app)
     private val syncManager = SyncManager(app, repo, syncPrefs)
+    private val backupStatusPrefs = BackupStatusPrefs(app)
 
     val members: StateFlow<List<Member>> = repo.observeAll()
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
@@ -58,19 +64,59 @@ class MembersViewModel(app: Application) : AndroidViewModel(app) {
     fun saveIdProofPhoto(memberId: String, uri: Uri): String = repo.saveIdProofPhoto(memberId, uri)
     fun deleteIdProofPhoto(memberId: String) = repo.deleteIdProofPhoto(memberId)
 
-    fun exportJson(onResult: (String) -> Unit) = viewModelScope.launch {
-        val json = BackupManager.exportJson(getApplication(), repo.allOnce())
-        // Also stash a copy internally so Share Backup File always has the
-        // latest export to work with, without changing what this button does.
-        repo.saveInternalBackupCopy(json)
-        onResult(json)
+    // ---- Local ZIP backup system ----
+
+    private fun timestampLabel(): String =
+        LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd_HHmm"))
+
+    /** Export Backup: builds a fresh ZIP (Generator -> Compressor -> Validator,
+     *  the same core Automatic Backup and Backup Now use) and hands the
+     *  finished file to [onResult] so the caller can copy its bytes to
+     *  wherever the owner picked via the Android file picker. Also stashes an
+     *  internal copy so Share Backup File always has a recent backup to work
+     *  with. Null result means backup creation itself failed. */
+    fun exportZipBackup(onResult: (File?, String?) -> Unit) = viewModelScope.launch {
+        try {
+            val app: Application = getApplication()
+            val temp = File(app.cacheDir, "export_${System.currentTimeMillis()}.zip")
+            val file = BackupService.createZipBackup(app, repo, temp)
+            // Keep an internal copy for Share Backup File, then clean up the temp export copy.
+            file.copyTo(repo.newManualBackupFile(timestampLabel()), overwrite = true)
+            onResult(file, null)
+        } catch (e: Exception) {
+            onResult(null, e.message ?: "The backup could not be completed.")
+        }
     }
 
-    /** Merges a restored backup in rather than replacing the whole table, so it can never
-     *  silently delete local-only records that weren't in the backup file. */
-    fun importJson(json: String) = viewModelScope.launch {
-        repo.mergeAll(BackupManager.importJson(getApplication(), json))
+    /** Backup Now: immediately creates and verifies a local ZIP backup using
+     *  the same core as Automatic Backup / Export Backup. This is a *manual*
+     *  local backup - stored separately from automatic backups so it's never
+     *  touched by the 30-backup automatic retention policy. */
+    fun backupNow(onResult: (File?, String?) -> Unit) = viewModelScope.launch {
+        try {
+            val app: Application = getApplication()
+            val dest = repo.newManualBackupFile(timestampLabel())
+            val file = BackupService.createZipBackup(app, repo, dest)
+            onResult(file, null)
+        } catch (e: Exception) {
+            onResult(null, e.message ?: "The backup could not be completed.")
+        }
     }
+
+    /** Import / Restore: accepts either a new ZIP backup or a legacy plain
+     *  JSON backup - format is detected from the file's actual content, not
+     *  its extension - validates it, snapshots current data as a safety net,
+     *  then merges it in. Never deletes local-only records that aren't in the
+     *  imported file. */
+    fun importBackup(uri: Uri, onResult: (RestoreOutcome) -> Unit) = viewModelScope.launch {
+        onResult(BackupService.importAndRestore(getApplication(), repo, uri))
+    }
+
+    fun autoBackupCount(): Int = repo.listAutoBackups().size
+    fun autoBackupStorageBytes(): Long = repo.autoBackupStorageBytes()
+    fun lastAutoBackupMillis(): Long = backupStatusPrefs.lastAutoBackupMillis
+    fun lastAutoBackupSuccess(): Boolean = backupStatusPrefs.lastAutoBackupSuccess
+    fun lastAutoBackupError(): String? = backupStatusPrefs.lastAutoBackupError
 
     // ---- Share Backup File (Feature 1) ----
 
