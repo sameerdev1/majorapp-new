@@ -5,8 +5,6 @@ import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.majorgym.app.data.BackupManager
-import com.majorgym.app.data.DriveBackupController
-import com.majorgym.app.data.DriveResult
 import com.majorgym.app.data.Member
 import com.majorgym.app.data.PairedDevice
 import com.majorgym.app.data.PasskeyUtils
@@ -23,10 +21,6 @@ class MembersViewModel(app: Application) : AndroidViewModel(app) {
     private val repo = Repository(app)
     private val syncPrefs = SyncPrefs(app)
     private val syncManager = SyncManager(app, repo, syncPrefs)
-
-    // ---- Google Drive automatic backup (new feature; existing manual
-    // Export/Restore/Share Backup above is untouched) ----
-    val driveBackup = DriveBackupController(app, repo)
 
     val members: StateFlow<List<Member>> = repo.observeAll()
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
@@ -104,24 +98,5 @@ class MembersViewModel(app: Application) : AndroidViewModel(app) {
 
     fun startSync(onStatus: (String) -> Unit, onDone: (SyncOutcome) -> Unit) = viewModelScope.launch {
         onDone(syncManager.runSync(onStatus = onStatus))
-    }
-
-    // ---- Google Drive automatic backup (thin viewModelScope wrappers around
-    // DriveBackupController's suspend functions, so Compose call sites don't
-    // need their own coroutine scope) ----
-
-    fun driveBackupNow(onResult: (DriveResult<*>) -> Unit) = viewModelScope.launch {
-        onResult(driveBackup.backupNow())
-    }
-
-    fun driveListRemoteBackups(onResult: (DriveResult<List<com.google.api.services.drive.model.File>>) -> Unit) =
-        viewModelScope.launch { onResult(driveBackup.listRemoteBackups()) }
-
-    fun driveRestoreBackup(fileId: String, onResult: (DriveResult<Int>) -> Unit) = viewModelScope.launch {
-        onResult(driveBackup.restoreBackup(fileId))
-    }
-
-    fun driveDeleteRemoteBackup(fileId: String, onResult: (DriveResult<Unit>) -> Unit) = viewModelScope.launch {
-        onResult(driveBackup.deleteRemoteBackup(fileId))
     }
 }

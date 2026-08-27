@@ -1509,9 +1509,5 @@ fun BackupScreen(vm: MembersViewModel) {
             }
         }
 
-        // New Google Drive automatic backup feature — everything above this
-        // point is the existing, unmodified manual Export/Restore/Share Backup
-        // UI (spec section 21: must keep working exactly as before).
-        DriveBackupSection(vm)
     }
 }

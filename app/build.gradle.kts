@@ -84,19 +84,4 @@ dependencies {
     // SecuGen FDx SDK Pro — USB fingerprint scanner (enroll + verify at check-in)
     implementation(files("libs/FDxSDKProFDAndroid.jar"))
     implementation(files("libs/AlCamera.jar"))
-
-    // Google Drive automatic backup (Backup & Restore enhancement): Google
-    // Sign-In for account connect/switch/disconnect, and the Drive v3 REST
-    // client for uploading/listing/downloading/deleting backups inside the
-    // app's own dedicated "Major Gym Backups" folder. No token/credential
-    // storage of any kind is added by this app — see DriveBackupPrefs/
-    // DriveBackupManager docs.
-    implementation("com.google.android.gms:play-services-auth:21.2.0")
-    implementation("com.google.api-client:google-api-client-android:2.2.0") {
-        exclude(group = "org.apache.httpcomponents")
-    }
-    implementation("com.google.apis:google-api-services-drive:v3-rev20240914-2.0.0") {
-        exclude(group = "org.apache.httpcomponents")
-    }
-    implementation("com.google.http-client:google-http-client-gson:1.44.1")
 }
