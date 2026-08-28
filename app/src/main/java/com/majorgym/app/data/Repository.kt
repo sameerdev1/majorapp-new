@@ -174,15 +174,14 @@ class Repository(private val context: Context) {
 
     // ---------- Share Backup File (Feature 1) ----------
     //
-    // Now shares the newest ZIP this app has produced by ANY means (Backup
-    // Now, Export Backup, or an automatic backup) rather than keeping its own
-    // separate JSON copy - the owner should only ever see/share the ZIP.
+    // Shares the newest ZIP this app has produced by any manual means (Backup
+    // Now or Export Backup) rather than keeping its own separate JSON copy -
+    // the owner should only ever see/share the ZIP.
 
-    /** The newest backup this app has ever produced, from either the manual
-     *  or automatic backup folder, or null if there isn't one yet. */
+    /** The newest manual backup this app has ever produced, or null if there
+     *  isn't one yet. */
     fun latestInternalBackupFile(): File? =
-        (listAutoBackups() + manualBackupsDir().listFiles { f -> f.extension == "zip" }.orEmpty())
-            .maxByOrNull { it.lastModified() }
+        manualBackupsDir().listFiles { f -> f.extension == "zip" }?.maxByOrNull { it.lastModified() }
 
     /** Generates a fresh ZIP backup right now and stashes it in the manual
      *  backups folder - used when Share Backup is tapped and no backup exists
@@ -197,16 +196,9 @@ class Repository(private val context: Context) {
     private fun shareTimestampLabel(): String =
         java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd_HHmm"))
 
-    // ---------- Local ZIP backup system (Automatic / Backup Now / Export) ----------
+    // ---------- Local ZIP backup system (Backup Now / Export) ----------
 
-    /** Where scheduled automatic backups live. Separate from [manualBackupsDir]
-     *  so the 30-backup retention policy can only ever touch files it
-     *  created - it never sees, and can never delete, anything from a manual
-     *  "Backup Now" or an exported backup. */
-    private fun autoBackupsDir(): File = File(context.filesDir, "backups/auto").apply { mkdirs() }
-
-    /** Where "Backup Now" saves its local copy. Exempt from automatic
-     *  retention per spec section 5/14 - only [autoBackupsDir] is pruned. */
+    /** Where "Backup Now" and Export Backup save their local copy. */
     private fun manualBackupsDir(): File = File(context.filesDir, "backups/manual").apply { mkdirs() }
 
     /** A single overwritten-each-time pre-restore snapshot (section 9) - a
@@ -215,31 +207,14 @@ class Repository(private val context: Context) {
      *  the owner and never counted toward any retention limit. */
     private fun safetyBackupFile(): File = File(context.filesDir, "backups/safety_backup.zip")
 
-    fun listAutoBackups(): List<File> =
-        autoBackupsDir().listFiles { f -> f.extension == "zip" }?.sortedByDescending { it.lastModified() } ?: emptyList()
-
-    fun newAutoBackupFile(timestampLabel: String): File =
-        File(autoBackupsDir(), "MajorGym_AutoBackup_$timestampLabel.zip")
-
     fun newManualBackupFile(timestampLabel: String): File =
         File(manualBackupsDir(), "MajorGym_Backup_$timestampLabel.zip")
-
-    /** Rolling retention (spec section 5): keeps only the newest [keep]
-     *  automatic backups. Only ever called right after a new automatic backup
-     *  has itself been saved and verified - see [BackupWorker] - so a failed
-     *  backup attempt never reaches this and never costs a prior good backup. */
-    fun pruneAutoBackups(keep: Int = 30) {
-        listAutoBackups().drop(keep).forEach { it.delete() }
-    }
-
-    fun autoBackupStorageBytes(): Long = listAutoBackups().sumOf { it.length() }
 
     /** Writes a snapshot of the CURRENT (pre-restore) member data to
      *  [safetyBackupFile] using the exact same generator/compressor the real
      *  backups use, so it's just as restorable if it's ever needed by hand. */
     suspend fun writeSafetyBackupSnapshot() {
-        val syncCode = SyncPrefs(context).syncCode
-        val json = BackupManager.exportJson(context, allOnce(), syncCode)
+        val json = BackupManager.exportJson(context, allOnce())
         BackupZip.write(json, safetyBackupFile())
     }
 }

@@ -1387,26 +1387,9 @@ fun BackupScreen(vm: MembersViewModel) {
     var shareMessage by remember { mutableStateOf<String?>(null) }
     var sharing by remember { mutableStateOf(false) }
     var exporting by remember { mutableStateOf(false) }
-    var backingUpNow by remember { mutableStateOf(false) }
     var latestBackup by remember { mutableStateOf(vm.latestBackupFile()) }
 
-    // Automatic-backup status (spec section 12) - re-read whenever this
-    // screen recomposes after a relevant action, since it's plain
-    // SharedPreferences/file-listing state rather than an observed Flow.
-    var autoBackupCount by remember { mutableStateOf(vm.autoBackupCount()) }
-    var autoStorageBytes by remember { mutableStateOf(vm.autoBackupStorageBytes()) }
-    var lastAutoMillis by remember { mutableStateOf(vm.lastAutoBackupMillis()) }
-    var lastAutoSuccess by remember { mutableStateOf(vm.lastAutoBackupSuccess()) }
-    var lastAutoError by remember { mutableStateOf(vm.lastAutoBackupError()) }
-
     fun refreshLatestBackup() { latestBackup = vm.latestBackupFile() }
-    fun refreshAutoStatus() {
-        autoBackupCount = vm.autoBackupCount()
-        autoStorageBytes = vm.autoBackupStorageBytes()
-        lastAutoMillis = vm.lastAutoBackupMillis()
-        lastAutoSuccess = vm.lastAutoBackupSuccess()
-        lastAutoError = vm.lastAutoBackupError()
-    }
 
     val createDoc = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri: Uri? ->
         if (uri != null) {
@@ -1435,7 +1418,7 @@ fun BackupScreen(vm: MembersViewModel) {
                     is RestoreOutcome.Success -> {
                         message = "Records restored."
                         messageIsError = false
-                        refreshAutoStatus()
+                        refreshLatestBackup()
                     }
                     is RestoreOutcome.InvalidBackup -> {
                         message = outcome.reason
@@ -1468,86 +1451,6 @@ fun BackupScreen(vm: MembersViewModel) {
         Text("Export your gym records, or restore them on a new phone.", color = GymColors.TextMuted, fontSize = 13.sp)
         Spacer(Modifier.height(20.dp))
 
-        // ---- Automatic Backup status (spec section 12) ----
-        Card(
-            colors = CardDefaults.cardColors(containerColor = GymColors.SurfaceCard),
-            shape = RoundedCornerShape(16.dp),
-            modifier = Modifier.fillMaxWidth().border(1.dp, GymColors.Border, RoundedCornerShape(16.dp))
-        ) {
-            Column(Modifier.padding(16.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Filled.Backup, null, tint = GymColors.Accent, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("Automatic Backup", color = GymColors.Text, fontWeight = FontWeight.Bold)
-                    Spacer(Modifier.weight(1f))
-                    Icon(Icons.Filled.CheckCircle, null, tint = GymColors.Success, modifier = Modifier.size(14.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text("Enabled", color = GymColors.Success, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                }
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    "Runs automatically every night around 11:59 PM and keeps the most recent 30 backups on this device.",
-                    color = GymColors.TextMuted, fontSize = 12.sp
-                )
-                Spacer(Modifier.height(14.dp))
-
-                BackupStatusRow("Last Automatic Backup", if (lastAutoMillis > 0) "${formatDate(lastAutoMillis)} \u2022 ${formatTimeOfDay(lastAutoMillis)}" else "Not yet run")
-                Spacer(Modifier.height(8.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Status", color = GymColors.TextFaint, fontSize = 12.sp, modifier = Modifier.weight(1f))
-                    if (lastAutoMillis == 0L) {
-                        Text("\u2014", color = GymColors.TextMuted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                    } else if (lastAutoSuccess) {
-                        Text("\u2713 Backup successful", color = GymColors.Success, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                    } else {
-                        Text("\u2717 Backup failed", color = GymColors.Danger, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                    }
-                }
-                if (!lastAutoSuccess && lastAutoError != null) {
-                    Spacer(Modifier.height(4.dp))
-                    Text(lastAutoError ?: "", color = GymColors.Danger, fontSize = 11.sp)
-                }
-                Spacer(Modifier.height(8.dp))
-                BackupStatusRow("Automatic Backups", "$autoBackupCount")
-                Spacer(Modifier.height(8.dp))
-                BackupStatusRow("Storage Used", formatBackupSize(autoStorageBytes))
-
-                Spacer(Modifier.height(14.dp))
-                val backupNowInteractionSource = remember { MutableInteractionSource() }
-                Button(
-                    onClick = {
-                        backingUpNow = true
-                        vm.backupNow { file, error ->
-                            backingUpNow = false
-                            refreshAutoStatus()
-                            if (file != null) {
-                                message = "Backup successful."
-                                messageIsError = false
-                                refreshLatestBackup()
-                            } else {
-                                message = "Backup failed\n\n${error ?: "The backup could not be completed."}\n\nYour previous backup has been kept safe."
-                                messageIsError = true
-                            }
-                        }
-                    },
-                    enabled = !backingUpNow,
-                    colors = ButtonDefaults.buttonColors(containerColor = GymColors.Accent, disabledContainerColor = GymColors.Surface2),
-                    shape = RoundedCornerShape(10.dp),
-                    interactionSource = backupNowInteractionSource,
-                    modifier = Modifier.fillMaxWidth().height(44.dp).gymPressScale(backupNowInteractionSource)
-                ) {
-                    AnimatedContent(
-                        targetState = backingUpNow,
-                        transitionSpec = { fadeIn(GymMotion.standardTween()) togetherWith fadeOut(GymMotion.fastTween()) },
-                        label = "backupNowContent"
-                    ) { isRunning ->
-                        Text(if (isRunning) "Backing up\u2026" else "Backup Now", fontWeight = FontWeight.Bold, color = Color.Black)
-                    }
-                }
-            }
-        }
-
-        Spacer(Modifier.height(14.dp))
         Card(
             colors = CardDefaults.cardColors(containerColor = GymColors.SurfaceCard),
             shape = RoundedCornerShape(16.dp),
@@ -1689,14 +1592,5 @@ fun BackupScreen(vm: MembersViewModel) {
             }
         }
 
-    }
-}
-
-/** One label/value row used inside the Automatic Backup status card. */
-@Composable
-private fun BackupStatusRow(label: String, value: String) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(label, color = GymColors.TextFaint, fontSize = 12.sp, modifier = Modifier.weight(1f))
-        Text(value, color = GymColors.Text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
     }
 }

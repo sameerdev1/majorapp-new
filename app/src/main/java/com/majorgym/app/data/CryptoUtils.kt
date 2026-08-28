@@ -15,12 +15,16 @@ import javax.crypto.spec.SecretKeySpec
 /**
  * Real (not obfuscation/Base64) cryptographic primitives shared by:
  *  - at-rest fingerprint template encryption (Android Keystore-backed, never
- *    leaves this device),
- *  - portable fingerprint-template encryption embedded in backup files (key
- *    derived from the gym's own Sync Code, so a restore on a *paired* device
- *    that already knows the same code can still decrypt it), and
- *  - the LAN sync channel (key derived from the same Sync Code, used to
+ *    leaves this device), and
+ *  - the LAN sync channel (key derived from the gym's Sync Code, used to
  *    authenticate peers and encrypt every byte exchanged).
+ *
+ * Fingerprint templates embedded in manual backup files are intentionally
+ * NOT portable-encrypted here: they're written out the same way they travel
+ * over an already-encrypted LAN sync frame (see [SyncManager]), as plain
+ * Base64 inside the backup JSON, so a restore never depends on a Sync Code or
+ * any other piece of app state that a full data clear would wipe out. See
+ * [BackupManager] for the full rationale.
  *
  * All AES use is AES/GCM/NoPadding (authenticated encryption - confidentiality
  * AND tamper detection in one primitive), 256-bit keys, random 12-byte IVs
@@ -39,7 +43,6 @@ object CryptoUtils {
      *  starts with, so legacy plaintext templates (pre-encryption installs)
      *  and encrypted ones can always be told apart safely - never guessed. */
     private const val MARKER_KEYSTORE: Byte = 0x01
-    private const val MARKER_PORTABLE: Byte = 0x02
 
     // ---------------- At-rest (Android Keystore, device-bound) ----------------
 
@@ -98,60 +101,10 @@ object CryptoUtils {
         }
     }
 
-    // ---------------- Portable (Sync Code-derived, for backup files) ----------------
-
-    /** PBKDF2-HMAC-SHA256, 150k iterations, 256-bit output - deliberately slow
-     *  to brute-force, unlike a raw hash. Fixed application-specific salt: this
-     *  key only ever protects data that's *also* gated by possessing the Sync
-     *  Code itself, so a per-backup random salt would add no real security
-     *  here while breaking "any device with the same code can decrypt". */
-    private fun deriveKeyFromSyncCode(syncCode: String): SecretKey {
-        val salt = "MajorGym-Backup-FP-v1".toByteArray(Charsets.UTF_8)
-        val spec = PBEKeySpec(syncCode.toCharArray(), salt, 150_000, 256)
-        val bytes = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(spec).encoded
-        return SecretKeySpec(bytes, "AES")
-    }
-
-    /** Encrypts [plain] with a key derived from [syncCode]. Output: [marker(1)]
-     *  [iv(12)] [ciphertext+tag]. Any other device that has been given the same
-     *  Sync Code can derive the identical key and decrypt it - matching this
-     *  app's existing "up to 3 devices share one code" trust model - while a
-     *  backup file on its own, or a guess at Base64-decoding it, reveals nothing. */
-    fun encryptPortable(plain: ByteArray, syncCode: String): ByteArray {
-        val key = deriveKeyFromSyncCode(syncCode)
-        val iv = ByteArray(GCM_IV_BYTES).also { SecureRandom().nextBytes(it) }
-        val cipher = Cipher.getInstance(AES_MODE)
-        cipher.init(Cipher.ENCRYPT_MODE, key, GCMParameterSpec(GCM_TAG_BITS, iv))
-        val ciphertext = cipher.doFinal(plain)
-        return byteArrayOf(MARKER_PORTABLE) + iv + ciphertext
-    }
-
-    /** Reverses [encryptPortable]. Returns null on any failure (wrong code,
-     *  corrupted data) rather than throwing - callers must treat that as "this
-     *  template can't be recovered with the code that was entered", never crash
-     *  the whole restore over one field. */
-    fun decryptPortable(stored: ByteArray, syncCode: String): ByteArray? {
-        if (stored.size < 1 + GCM_IV_BYTES || stored[0] != MARKER_PORTABLE) return null
-        return try {
-            val iv = stored.copyOfRange(1, 1 + GCM_IV_BYTES)
-            val ciphertext = stored.copyOfRange(1 + GCM_IV_BYTES, stored.size)
-            val key = deriveKeyFromSyncCode(syncCode)
-            val cipher = Cipher.getInstance(AES_MODE)
-            cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(GCM_TAG_BITS, iv))
-            cipher.doFinal(ciphertext)
-        } catch (_: Exception) {
-            null
-        }
-    }
-
     // ---------------- Generic AES-GCM (used for the sync channel) ----------------
 
     /** Derives a raw 256-bit [SecretKey] from an arbitrary passphrase - used by
-     *  [SyncManager] to turn the shared Sync Code into a channel-encryption key.
-     *  Separate salt from [deriveKeyFromSyncCode] so the backup-file key and the
-     *  live-sync-channel key are cryptographically independent, even though
-     *  both start from the same code - compromising a captured backup file
-     *  never helps decrypt a captured sync session, or vice versa. */
+     *  [SyncManager] to turn the shared Sync Code into a channel-encryption key. */
     fun deriveSyncChannelKey(syncCode: String): SecretKey {
         val salt = "MajorGym-Sync-Channel-v1".toByteArray(Charsets.UTF_8)
         val spec = PBEKeySpec(syncCode.toCharArray(), salt, 150_000, 256)

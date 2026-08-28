@@ -8,7 +8,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.*
@@ -33,11 +35,19 @@ fun SyncScreen(vm: MembersViewModel) {
     var syncing by remember { mutableStateOf(false) }
     var paired by remember { mutableStateOf(vm.pairedDevices()) }
 
+    // Fix #3: the screen must stay usable once the keyboard opens for the
+    // device-name/Sync Code fields - verticalScroll lets the whole page
+    // scroll (same pattern BackupScreen already uses) and imePadding adds
+    // bottom space for the keyboard itself, so content/buttons below the
+    // focused field are never permanently hidden behind it. No layout,
+    // color, or Sync logic changes beyond this.
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .verticalScroll(rememberScrollState())
             .padding(horizontal = 16.dp)
             .padding(top = 20.dp, bottom = 90.dp)
+            .imePadding()
     ) {
         Text("DEVICE SYNC", color = GymColors.Text, fontWeight = FontWeight.ExtraBold, fontSize = 22.sp, letterSpacing = 0.5.sp)
         Spacer(Modifier.height(4.dp))

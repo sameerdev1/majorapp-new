@@ -13,8 +13,15 @@ private const val TAG = "BackupManager"
  *  a stored representation changes. Old backups (missing "schemaVersion", or
  *  with a lower one) still restore - every field below is read defensively
  *  with a safe fallback, so "missing field" just means "wasn't captured yet
- *  by that version" rather than a hard failure. */
-const val BACKUP_SCHEMA_VERSION = 2
+ *  by that version" rather than a hard failure.
+ *
+ *  v3: fingerprint templates are embedded as plain Base64
+ *  ("fingerprintTemplateBase64") instead of being portable-encrypted with a
+ *  Sync Code ("fingerprintTemplateProtected", v2 only) - see [exportJson]. A
+ *  v2 backup's protected templates can no longer be decrypted (there's no key
+ *  left to do it with) and are skipped gracefully on import; everything else
+ *  in the record still restores normally. */
+const val BACKUP_SCHEMA_VERSION = 3
 
 /**
  * Exports/imports the full gym database - including member photos, embedded
@@ -32,16 +39,20 @@ const val BACKUP_SCHEMA_VERSION = 2
 object BackupManager {
 
     /**
-     * @param syncCode if non-null, [Member.fingerprintTemplate] is embedded
-     *   encrypted with a key derived from it ([CryptoUtils.encryptPortable]) -
-     *   recoverable only by a device that has been given the same Sync Code.
-     *   If null (no Sync Code has ever been set on this device), fingerprint
-     *   templates are omitted from the export entirely rather than ever being
-     *   written out as recoverable plaintext/Base64 - members simply need
-     *   re-enrollment after a restore in that case, which is disclosed to the
-     *   owner by [BackupService].
+     * Fingerprint templates are written out as plain Base64
+     * ("fingerprintTemplateBase64"), the same way they're already carried
+     * across an already-encrypted LAN sync frame (see [SyncManager]) - not
+     * portable-encrypted with a Sync Code. That layer used to make a manual
+     * backup's fingerprints recoverable only on a device that still had the
+     * same Sync Code, which meant an Export -> full data clear -> Import
+     * round trip on the SAME phone could silently lose every fingerprint,
+     * since clearing app data wipes the Sync Code too. A manual backup file
+     * is already sensitive (it also carries member photos and password
+     * hashes as plain/Base64 fields) and is the owner's own responsibility to
+     * store safely, so this isn't a new category of exposure - it just stops
+     * fingerprint restore from depending on unrelated app state.
      */
-    fun exportJson(context: Context, members: List<Member>, syncCode: String? = null): String {
+    fun exportJson(context: Context, members: List<Member>): String {
         val arr = JSONArray()
         members.forEach { m ->
             val o = JSONObject()
@@ -74,19 +85,17 @@ object BackupManager {
             }
             if (photoBase64 != null) o.put("photoBase64", photoBase64)
 
-            // Fingerprint template - see fix #7/#8. Never written as raw
-            // Base64 here: either portable-encrypted with the Sync Code, or
-            // left out entirely. [m.fingerprintTemplate] arriving here is
-            // always already plaintext (Repository decrypts on the way out
-            // of the database), which is what makes it safe/correct to
-            // re-protect it for this specific export destination.
+            // Fingerprint template - see fix #1/#7. [m.fingerprintTemplate]
+            // arriving here is always already plaintext (Repository decrypts
+            // on the way out of the database); it's written out as plain
+            // Base64 so restoring this same backup - on this phone or a new
+            // one - never depends on a Sync Code or any other app state that
+            // a data clear/reinstall would wipe out. Re-encrypted at rest
+            // with the restoring device's own Keystore key by
+            // Repository.encryptedForStorage() the moment it's saved back
+            // into the database (see BackupService/SyncManager import paths).
             if (m.fingerprintTemplate != null) {
-                if (syncCode != null) {
-                    val protectedBytes = CryptoUtils.encryptPortable(m.fingerprintTemplate, syncCode)
-                    o.put("fingerprintTemplateProtected", Base64.encodeToString(protectedBytes, Base64.NO_WRAP))
-                } else {
-                    Log.w(TAG, "No Sync Code set - omitting fingerprint template from backup for member ${m.id}")
-                }
+                o.put("fingerprintTemplateBase64", Base64.encodeToString(m.fingerprintTemplate, Base64.NO_WRAP))
             }
             if (m.pendingDeletionMillis != null) o.put("pendingDeletionMillis", m.pendingDeletionMillis)
             arr.put(o)
@@ -100,12 +109,16 @@ object BackupManager {
     }
 
     /**
-     * @param syncCode used to decrypt any `fingerprintTemplateProtected`
-     *   entries - must be the same code the export used, or those templates
-     *   come back as null (member imports fine, just without a fingerprint;
-     *   never crashes the whole restore over one field).
+     * Reads `fingerprintTemplateBase64` (current format, and also what
+     * [SyncManager] sends over the already-encrypted LAN sync channel) as a
+     * plain template. A `fingerprintTemplateProtected` field (pre-v3 backups,
+     * portable-encrypted with a Sync Code) can no longer be decrypted - that
+     * key derivation no longer exists anywhere in this app - so it's skipped
+     * with a log warning: the member still imports normally, just without a
+     * fingerprint, rather than the whole restore failing or a new key/prompt
+     * being invented to recover it.
      */
-    fun importJson(context: Context, json: String, syncCode: String? = null): List<Member> {
+    fun importJson(context: Context, json: String): List<Member> {
         val root = JSONObject(json)
         val arr = root.optJSONArray("members") ?: JSONArray()
         val photosDir = File(context.filesDir, "photos").apply { mkdirs() }
@@ -155,15 +168,15 @@ object BackupManager {
 
             var fingerprintTemplate: ByteArray? = null
             val protectedB64 = o.optString("fingerprintTemplateProtected", "")
-            if (protectedB64.isNotBlank() && syncCode != null) {
-                val protectedBytes = runCatching { Base64.decode(protectedB64, Base64.NO_WRAP) }.getOrNull()
-                fingerprintTemplate = protectedBytes?.let { CryptoUtils.decryptPortable(it, syncCode) }
-            } else if (protectedB64.isNotBlank()) {
-                Log.w(TAG, "Backup contains a protected fingerprint template but no Sync Code is set - skipping it for $id")
+            if (protectedB64.isNotBlank()) {
+                // Pre-v3 backup: this was portable-encrypted with a Sync Code
+                // whose derivation this app no longer implements at all - it
+                // can never be decrypted again, by design (no key/password is
+                // ever asked for). Not a crash; the member just needs
+                // re-enrollment after this restore, same as any other
+                // template that fails to come back.
+                Log.w(TAG, "Backup contains a pre-v3 protected fingerprint template for $id - it can no longer be decrypted and will be skipped")
             } else {
-                // Legacy (pre-#8) backups embedded the template as plain
-                // Base64 under this old key. Still readable so old backups
-                // aren't silently broken, but never written out that way again.
                 fingerprintTemplate = o.optString("fingerprintTemplateBase64", "")
                     .takeIf { it.isNotBlank() }
                     ?.let { runCatching { Base64.decode(it, Base64.NO_WRAP) }.getOrNull() }

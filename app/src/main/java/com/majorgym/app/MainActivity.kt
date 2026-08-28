@@ -33,7 +33,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.core.content.ContextCompat
-import com.majorgym.app.data.BackupWorker
 import com.majorgym.app.data.MembershipCleanupWorker
 import com.majorgym.app.ui.*
 
@@ -47,9 +46,6 @@ class MainActivity : ComponentActivity() {
         // launch — WorkManager's KEEP policy no-ops if it's already scheduled,
         // so this never creates duplicate jobs or resets the run cadence.
         MembershipCleanupWorker.schedule(applicationContext)
-        // Local ZIP backup system: schedules (or confirms already-scheduled)
-        // the nightly automatic backup. Same KEEP-policy safety as above.
-        BackupWorker.schedule(applicationContext)
         setContent {
             MajorGymTheme {
                 var showSplash by remember { mutableStateOf(true) }

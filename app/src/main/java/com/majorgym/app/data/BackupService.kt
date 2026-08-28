@@ -21,19 +21,18 @@ sealed class RestoreOutcome {
 }
 
 /**
- * The single reusable core behind Automatic Backup, Backup Now, and Export
- * Backup (section 13/23 of the spec): generate the existing JSON, compress it
- * into a ZIP, and verify the ZIP before anyone is told the backup succeeded.
- * Also owns the import side: detect ZIP vs legacy JSON, validate, and restore
- * with a safety snapshot first.
+ * The single reusable core behind Export Backup (manual): generate the
+ * existing JSON, compress it into a ZIP, and verify the ZIP before anyone is
+ * told the backup succeeded. Also owns the import side: detect ZIP vs legacy
+ * JSON, validate, and restore with a safety snapshot first.
  *
  * Deliberately does not touch [BackupManager]'s JSON structure - it only
  * wraps it.
  */
 object BackupService {
 
-    /** Generator -> Compressor -> Validator, run in one place so Automatic
-     *  Backup / Backup Now / Export Backup can never drift apart. Writes the
+    /** Generator -> Compressor -> Validator, run in one place so Backup Now
+     *  and Export Backup can never drift apart. Writes the
      *  ZIP to [destFile], verifies it can be reopened and parsed, and returns
      *  it. On ANY failure the partially-written file is removed and the
      *  original exception's message is preserved so the caller can show a
@@ -42,12 +41,8 @@ object BackupService {
     suspend fun createZipBackup(context: Context, repository: Repository, destFile: File): File =
         withContext(Dispatchers.IO) {
             try {
-                // Generator - fingerprint templates are protected using this
-                // device's Sync Code (see BackupManager/CryptoUtils); if none
-                // is set yet, they're simply omitted rather than ever written
-                // out recoverable via a plain Base64 decode.
-                val syncCode = SyncPrefs(context).syncCode
-                val json = BackupManager.exportJson(context, repository.allOnce(), syncCode)
+                // Generator
+                val json = BackupManager.exportJson(context, repository.allOnce())
                 // Compressor
                 BackupZip.write(json, destFile)
                 // Validator - reopen the file we just wrote and confirm it's
@@ -103,9 +98,8 @@ object BackupService {
             // Stage: parse into an in-memory list first. BackupManager skips
             // (never crashes on) any individual malformed record - nothing in
             // the database is touched during this step either way.
-            val syncCode = SyncPrefs(context).syncCode
             val incoming = try {
-                BackupManager.importJson(context, json, syncCode)
+                BackupManager.importJson(context, json)
             } catch (e: Exception) {
                 return@withContext RestoreOutcome.InvalidBackup(
                     "This backup file's data couldn't be read. It may be corrupted or from an unsupported version."

@@ -232,7 +232,7 @@ class SyncManager(
             val peerName = peerPayload.optString("deviceName", "Unknown device")
             val peerData = peerPayload.getJSONObject("data")
 
-            val incoming = BackupManager.importJson(context, peerData.toString(), syncCode = null)
+            val incoming = BackupManager.importJson(context, peerData.toString())
             repository.mergeAll(incoming)
             prefs.recordSync(peerId, peerName)
 
@@ -244,27 +244,14 @@ class SyncManager(
         SyncOutcome.Error(e.message ?: "Sync failed")
     }
 
-    /** Same shape as [BackupManager.exportJson] but with fingerprint templates
-     *  included as plain Base64 - safe here specifically because the whole
-     *  frame this gets embedded in is already AES-GCM encrypted before it
-     *  touches the socket (see [performExchange]). [BackupManager.importJson]
-     *  already reads this same legacy "fingerprintTemplateBase64" key when no
-     *  syncCode is supplied, so no separate parser is needed on the way in. */
-    private fun exportJsonWithPlainTemplates(members: List<Member>): String {
-        val json = org.json.JSONObject(BackupManager.exportJson(context, members, syncCode = null))
-        val arr = json.getJSONArray("members")
-        for (i in 0 until arr.length()) {
-            val o = arr.getJSONObject(i)
-            val member = members.getOrNull(i) ?: continue
-            if (member.fingerprintTemplate != null) {
-                o.put(
-                    "fingerprintTemplateBase64",
-                    android.util.Base64.encodeToString(member.fingerprintTemplate, android.util.Base64.NO_WRAP)
-                )
-            }
-        }
-        return json.toString()
-    }
+    /** [BackupManager.exportJson] already embeds fingerprint templates as
+     *  plain Base64 under "fingerprintTemplateBase64" (fix #1) - safe here
+     *  specifically because the whole frame this gets embedded in is already
+     *  AES-GCM encrypted before it touches the socket (see [performExchange]).
+     *  [BackupManager.importJson] reads that same key on the way in, so no
+     *  separate parser is needed for the sync path either. */
+    private fun exportJsonWithPlainTemplates(members: List<Member>): String =
+        BackupManager.exportJson(context, members)
 
     /** [4-byte big-endian length][payload]. Rejects an implausible length up
      *  front instead of trying to allocate/read it. */

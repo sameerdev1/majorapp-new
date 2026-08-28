@@ -5,7 +5,6 @@ import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.majorgym.app.data.BackupService
-import com.majorgym.app.data.BackupStatusPrefs
 import com.majorgym.app.data.Member
 import com.majorgym.app.data.PairedDevice
 import com.majorgym.app.data.PasskeyUtils
@@ -26,7 +25,6 @@ class MembersViewModel(app: Application) : AndroidViewModel(app) {
     private val repo = Repository(app)
     private val syncPrefs = SyncPrefs(app)
     private val syncManager = SyncManager(app, repo, syncPrefs)
-    private val backupStatusPrefs = BackupStatusPrefs(app)
 
     val members: StateFlow<List<Member>> = repo.observeAll()
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
@@ -84,12 +82,11 @@ class MembersViewModel(app: Application) : AndroidViewModel(app) {
     private fun timestampLabel(): String =
         LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd_HHmm"))
 
-    /** Export Backup: builds a fresh ZIP (Generator -> Compressor -> Validator,
-     *  the same core Automatic Backup and Backup Now use) and hands the
-     *  finished file to [onResult] so the caller can copy its bytes to
-     *  wherever the owner picked via the Android file picker. Also stashes an
-     *  internal copy so Share Backup File always has a recent backup to work
-     *  with. Null result means backup creation itself failed. */
+    /** Export Backup: builds a fresh ZIP (Generator -> Compressor -> Validator)
+     *  and hands the finished file to [onResult] so the caller can copy its
+     *  bytes to wherever the owner picked via the Android file picker. Also
+     *  stashes an internal copy so Share Backup File always has a recent
+     *  backup to work with. Null result means backup creation itself failed. */
     fun exportZipBackup(onResult: (File?, String?) -> Unit) = viewModelScope.launch {
         try {
             val app: Application = getApplication()
@@ -97,21 +94,6 @@ class MembersViewModel(app: Application) : AndroidViewModel(app) {
             val file = BackupService.createZipBackup(app, repo, temp)
             // Keep an internal copy for Share Backup File, then clean up the temp export copy.
             file.copyTo(repo.newManualBackupFile(timestampLabel()), overwrite = true)
-            onResult(file, null)
-        } catch (e: Exception) {
-            onResult(null, e.message ?: "The backup could not be completed.")
-        }
-    }
-
-    /** Backup Now: immediately creates and verifies a local ZIP backup using
-     *  the same core as Automatic Backup / Export Backup. This is a *manual*
-     *  local backup - stored separately from automatic backups so it's never
-     *  touched by the 30-backup automatic retention policy. */
-    fun backupNow(onResult: (File?, String?) -> Unit) = viewModelScope.launch {
-        try {
-            val app: Application = getApplication()
-            val dest = repo.newManualBackupFile(timestampLabel())
-            val file = BackupService.createZipBackup(app, repo, dest)
             onResult(file, null)
         } catch (e: Exception) {
             onResult(null, e.message ?: "The backup could not be completed.")
@@ -126,12 +108,6 @@ class MembersViewModel(app: Application) : AndroidViewModel(app) {
     fun importBackup(uri: Uri, onResult: (RestoreOutcome) -> Unit) = viewModelScope.launch {
         onResult(BackupService.importAndRestore(getApplication(), repo, uri))
     }
-
-    fun autoBackupCount(): Int = repo.listAutoBackups().size
-    fun autoBackupStorageBytes(): Long = repo.autoBackupStorageBytes()
-    fun lastAutoBackupMillis(): Long = backupStatusPrefs.lastAutoBackupMillis
-    fun lastAutoBackupSuccess(): Boolean = backupStatusPrefs.lastAutoBackupSuccess
-    fun lastAutoBackupError(): String? = backupStatusPrefs.lastAutoBackupError
 
     // ---- Share Backup File (Feature 1) ----
 
