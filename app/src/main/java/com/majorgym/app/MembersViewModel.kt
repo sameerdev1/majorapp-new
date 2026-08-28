@@ -43,9 +43,14 @@ class MembersViewModel(app: Application) : AndroidViewModel(app) {
         repo.save(member.copy(fingerprintTemplate = null, updatedAtMillis = System.currentTimeMillis()))
     }
 
-    /** True the instant a matching member's attendance is recorded at check-in. */
+    /** True the instant a matching member's attendance is recorded at check-in.
+     *  Also bumps [Member.updatedAtMillis] (fix #4/#12) so the attendance
+     *  itself - not just profile edits - propagates correctly through sync's
+     *  most-recently-edited-wins merge instead of being silently lost if the
+     *  other device happens to sync afterward. */
     fun recordAttendance(member: Member) = viewModelScope.launch {
-        repo.save(member.copy(lastAttendanceMillis = System.currentTimeMillis()))
+        val now = System.currentTimeMillis()
+        repo.save(member.copy(lastAttendanceMillis = now, updatedAtMillis = now))
     }
 
     /** Checks the "phone number already registered" rule before saving (spec section 1). */
@@ -57,11 +62,21 @@ class MembersViewModel(app: Application) : AndroidViewModel(app) {
      *  one-time WhatsApp welcome message. */
     fun generatePasskey(): String = PasskeyUtils.generate()
 
-    /** Copies the picked image into permanent app storage; safe to call synchronously. */
-    fun savePhoto(memberId: String, uri: Uri): String = repo.savePhoto(memberId, uri)
+    /**
+     * Copies the picked image into permanent app storage. Decoding/scaling/
+     * compressing runs off the main thread (fix #6 - see Repository.savePhoto);
+     * the result comes back via [onResult] instead of a direct return value so
+     * callers never block the UI thread waiting on it.
+     */
+    fun savePhoto(memberId: String, uri: Uri, onResult: (String) -> Unit) = viewModelScope.launch {
+        onResult(repo.savePhoto(memberId, uri))
+    }
 
-    /** Compresses and saves an ID proof photo (Feature 3); "" if the image couldn't be read. */
-    fun saveIdProofPhoto(memberId: String, uri: Uri): String = repo.saveIdProofPhoto(memberId, uri)
+    /** Compresses and saves an ID proof photo (Feature 3), off the main thread;
+     *  "" if the image couldn't be read. */
+    fun saveIdProofPhoto(memberId: String, uri: Uri, onResult: (String) -> Unit) = viewModelScope.launch {
+        onResult(repo.saveIdProofPhoto(memberId, uri))
+    }
     fun deleteIdProofPhoto(memberId: String) = repo.deleteIdProofPhoto(memberId)
 
     // ---- Local ZIP backup system ----

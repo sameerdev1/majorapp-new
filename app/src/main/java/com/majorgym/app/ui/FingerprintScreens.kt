@@ -223,10 +223,29 @@ fun EnrollFingerprintScreen(member: Member, vm: MembersViewModel, returnTo: Scre
                         } else {
                             val matched = fp.match(prior, capture.template)
                             if (matched) {
-                                vm.saveFingerprintTemplate(member, capture.template)
-                                status = ScanStatus.MATCHED
-                                Log.d(TAG, "SCANNER_ENROLL_SUCCESS")
-                                done = true
+                                // Fix #9: reject enrolling a fingerprint that's
+                                // already assigned to a *different* member,
+                                // before it's ever saved. Re-enrolling the same
+                                // member's own finger (they're replacing a worn
+                                // scan, or their old template just failed to
+                                // decrypt) must keep working, so this member's
+                                // own existing template is explicitly excluded
+                                // from the comparison.
+                                val duplicateOwner = vm.members.value.firstOrNull { other ->
+                                    other.id != member.id &&
+                                        other.fingerprintTemplate != null &&
+                                        fp.match(other.fingerprintTemplate, capture.template)
+                                }
+                                if (duplicateOwner != null) {
+                                    status = ScanStatus.FAILED
+                                    detail = "This fingerprint is already enrolled for ${duplicateOwner.name}."
+                                    firstScan = null
+                                } else {
+                                    vm.saveFingerprintTemplate(member, capture.template)
+                                    status = ScanStatus.MATCHED
+                                    Log.d(TAG, "SCANNER_ENROLL_SUCCESS")
+                                    done = true
+                                }
                             } else {
                                 status = ScanStatus.NOT_MATCHED
                                 detail = "The two scans didn't match. Starting over \u2014 scan the same finger twice."

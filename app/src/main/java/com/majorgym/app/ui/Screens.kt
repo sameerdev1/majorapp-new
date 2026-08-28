@@ -623,10 +623,10 @@ fun AddEditMemberScreen(vm: MembersViewModel, existing: Member?, onNavigate: (Sc
     var pendingCameraUri by remember { mutableStateOf<Uri?>(null) }
 
     val pickPhoto = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
-        uri?.let { photoPath = vm.savePhoto(id, it) }
+        uri?.let { vm.savePhoto(id, it) { path -> photoPath = path } }
     }
     val takePhoto = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
-        if (success) pendingCameraUri?.let { photoPath = vm.savePhoto(id, it) }
+        if (success) pendingCameraUri?.let { vm.savePhoto(id, it) { path -> photoPath = path } }
     }
     val requestCameraPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) {
@@ -637,10 +637,10 @@ fun AddEditMemberScreen(vm: MembersViewModel, existing: Member?, onNavigate: (Sc
     }
 
     val pickIdPhoto = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
-        uri?.let { idProofPhotoPath = vm.saveIdProofPhoto(id, it) }
+        uri?.let { vm.saveIdProofPhoto(id, it) { path -> idProofPhotoPath = path } }
     }
     val takeIdPhoto = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
-        if (success) pendingIdCameraUri?.let { idProofPhotoPath = vm.saveIdProofPhoto(id, it) }
+        if (success) pendingIdCameraUri?.let { vm.saveIdProofPhoto(id, it) { path -> idProofPhotoPath = path } }
     }
     val requestIdCameraPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) {
@@ -992,6 +992,7 @@ fun AddEditMemberScreen(vm: MembersViewModel, existing: Member?, onNavigate: (Sc
 @Composable
 fun ProfileScreen(member: Member, vm: MembersViewModel, onNavigate: (Screen) -> Unit) {
     var confirmDelete by remember { mutableStateOf(false) }
+    var confirmRemoveFingerprint by remember { mutableStateOf(false) }
     var showPhoto by remember { mutableStateOf(false) }
     var showIdPhoto by remember { mutableStateOf(false) }
     val status = statusOf(member.expiryMillis)
@@ -1091,6 +1092,16 @@ fun ProfileScreen(member: Member, vm: MembersViewModel, onNavigate: (Screen) -> 
                     Modifier.weight(1f)
                 ) { onNavigate(Screen.EnrollFingerprint(member.id)) }
             }
+            // Fix #11: a clear, explicit way to remove a fingerprint without
+            // deleting the member - gated behind its own confirmation so it
+            // can't be tapped by accident on a kiosk-adjacent device.
+            if (member.fingerprintTemplate != null) {
+                Row(modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
+                    ActionButton(Icons.Filled.Fingerprint, "Remove Fingerprint", GymColors.Danger, Modifier.weight(1f)) {
+                        confirmRemoveFingerprint = true
+                    }
+                }
+            }
             Text("HISTORY", color = GymColors.TextFaint, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp, modifier = Modifier.padding(bottom = 8.dp))
         }
         items(history) { h ->
@@ -1131,6 +1142,33 @@ fun ProfileScreen(member: Member, vm: MembersViewModel, onNavigate: (Screen) -> 
             },
             dismissButton = {
                 TextButton(onClick = { confirmDelete = false }) { Text("Cancel", color = GymColors.TextMuted) }
+            }
+        )
+    }
+
+    if (confirmRemoveFingerprint) {
+        AlertDialog(
+            onDismissRequest = { confirmRemoveFingerprint = false },
+            containerColor = GymColors.SurfaceCard,
+            title = { Text("Remove fingerprint", color = GymColors.Text, fontWeight = FontWeight.Bold) },
+            text = {
+                Text(
+                    "Remove ${member.name}'s enrolled fingerprint? They'll need to re-enroll to check in by fingerprint again.",
+                    color = GymColors.TextMuted
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    // Clears the stored template and bumps updatedAtMillis
+                    // (see MembersViewModel.clearFingerprintTemplate), which
+                    // also propagates the removal through sync so a stale
+                    // template on another paired device doesn't linger there.
+                    vm.clearFingerprintTemplate(member)
+                    confirmRemoveFingerprint = false
+                }) { Text("Remove", color = GymColors.Danger, fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmRemoveFingerprint = false }) { Text("Cancel", color = GymColors.TextMuted) }
             }
         )
     }

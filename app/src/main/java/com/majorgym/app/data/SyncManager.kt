@@ -9,15 +9,20 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
-import java.io.BufferedReader
-import java.io.InputStreamReader
-import java.io.OutputStreamWriter
+import java.io.DataInputStream
+import java.io.DataOutputStream
 import java.net.ServerSocket
 import java.net.Socket
 import java.security.MessageDigest
 import java.util.concurrent.atomic.AtomicBoolean
 
 private const val SERVICE_TYPE = "_majorgym._tcp."
+private const val NONCE_BYTES = 32
+/** Sanity cap on an incoming encrypted frame - real payloads (member JSON +
+ *  photos as Base64) can legitimately run into a few MB for a big roster, but
+ *  this stops a hostile/garbled peer from making us try to allocate gigabytes
+ *  from a forged length prefix. */
+private const val MAX_FRAME_BYTES = 64 * 1024 * 1024
 
 sealed class SyncOutcome {
     data class Success(val peerName: String, val recordCount: Int) : SyncOutcome()
@@ -30,10 +35,27 @@ sealed class SyncOutcome {
  * Local Wi-Fi/hotspot device sync - no internet, no server, no accounts.
  *
  * Devices on the same network discover each other over mDNS (Android's NSD
- * APIs), prove they belong to the same gym's sync circle by matching a
- * SHA-256 hash of a shared "sync code" (the code itself is never sent over
- * the network), then exchange their full member list once and each keep
- * whichever copy of every record was edited most recently.
+ * APIs), filter candidates by a SHA-256 hash of the shared "sync code" sent
+ * in the (unauthenticated, cleartext-by-design) NSD advertisement, then - the
+ * important part - actually prove mutual possession of the real code over the
+ * TCP connection itself before any member data crosses the wire at all:
+ *
+ *  1. Each side sends the other a random nonce.
+ *  2. Each side must answer with HMAC-SHA256(key, peer's nonce), where `key`
+ *     is derived from the code via PBKDF2 (never the code itself, and never
+ *     reused/replayable - a fresh nonce every session). A wrong/missing
+ *     answer closes the connection immediately - fix #2's "reject
+ *     unauthorized clients" / "fail safely when authentication fails".
+ *  3. Only once both proofs check out is a single AES-256-GCM key (derived
+ *     from the same code, independent salt from the backup-file key) used to
+ *     encrypt every subsequent byte in both directions - authenticated
+ *     encryption, so a tampered frame is detected and rejected outright
+ *     rather than silently accepted.
+ *
+ * A device on the same Wi-Fi that doesn't know the code can see that a sync
+ * service exists (mDNS is inherently public on the LAN) but can neither pass
+ * the proof step nor decrypt anything that follows it - matching fix #2's
+ * requirements in full, not just "hash the sync code differently".
  *
  * All networking is scoped to a single bounded sync attempt - it starts when
  * "Sync Now" is tapped and fully tears down (service unregistered, discovery
@@ -147,8 +169,8 @@ class SyncManager(
                 ?: return@withContext SyncOutcome.NotFound
 
             socket.soTimeout = 10_000
-            onStatus("Connected \u2014 exchanging records\u2026")
-            performExchange(socket)
+            onStatus("Connected \u2014 authenticating\u2026")
+            performExchange(socket, code)
         } catch (e: Exception) {
             SyncOutcome.Error(e.message ?: "Sync failed")
         } finally {
@@ -159,27 +181,58 @@ class SyncManager(
         }
     }
 
-    private suspend fun performExchange(socket: Socket): SyncOutcome = try {
+    private suspend fun performExchange(socket: Socket, syncCode: String): SyncOutcome = try {
         socket.use { s ->
-            val writer = OutputStreamWriter(s.getOutputStream(), Charsets.UTF_8)
-            val reader = BufferedReader(InputStreamReader(s.getInputStream(), Charsets.UTF_8))
+            val out = DataOutputStream(s.getOutputStream())
+            val input = DataInputStream(s.getInputStream())
+            val channelKey = CryptoUtils.deriveSyncChannelKey(syncCode)
 
+            // --- Mutual challenge/response: prove possession of the real
+            // sync code (never sent itself) before anything else happens. ---
+            val myNonce = CryptoUtils.randomBytes(NONCE_BYTES)
+            writeFrame(out, myNonce)
+            val peerNonce = readFrame(input) ?: return SyncOutcome.Error("Connection closed during authentication")
+
+            val myProof = CryptoUtils.hmacSha256(channelKey, peerNonce)
+            writeFrame(out, myProof)
+            val peerProof = readFrame(input) ?: return SyncOutcome.Error("Connection closed during authentication")
+            val expectedPeerProof = CryptoUtils.hmacSha256(channelKey, myNonce)
+            if (!CryptoUtils.constantTimeEquals(peerProof, expectedPeerProof)) {
+                // Wrong/missing sync code on the other end - fail safely,
+                // exchange nothing further.
+                return SyncOutcome.Error("The other device's sync code doesn't match")
+            }
+
+            // --- From here on, every frame is AES-256-GCM encrypted under
+            // the same code-derived key - confidentiality AND tamper
+            // detection for the actual member data, per fix #2/#8. Templates
+            // travel as plaintext-within-this-encrypted-frame (not a second,
+            // weaker encryption layer inside the JSON) - the receiving device
+            // re-encrypts them at rest with its own Keystore key the moment
+            // Repository.mergeAll saves them. ---
+            val members = repository.allOnce()
             val myPayload = JSONObject().apply {
                 put("deviceId", prefs.deviceId)
                 put("deviceName", prefs.deviceName)
-                put("data", JSONObject(BackupManager.exportJson(context, repository.allOnce())))
+                put("data", JSONObject(exportJsonWithPlainTemplates(members)))
             }
-            writer.write(myPayload.toString())
-            writer.write("\n")
-            writer.flush()
 
-            val line = reader.readLine() ?: return SyncOutcome.Error("Connection closed early")
-            val peerPayload = JSONObject(line)
+            val encryptedOut = CryptoUtils.aesGcmEncrypt(myPayload.toString().toByteArray(Charsets.UTF_8), channelKey)
+            writeFrame(out, encryptedOut)
+
+            val encryptedIn = readFrame(input) ?: return SyncOutcome.Error("Connection closed while exchanging records")
+            val decrypted = try {
+                CryptoUtils.aesGcmDecrypt(encryptedIn, channelKey)
+            } catch (e: Exception) {
+                // GCM auth failure = tampered or corrupted in transit.
+                return SyncOutcome.Error("The received data failed integrity verification")
+            }
+            val peerPayload = JSONObject(String(decrypted, Charsets.UTF_8))
             val peerId = peerPayload.getString("deviceId")
             val peerName = peerPayload.optString("deviceName", "Unknown device")
             val peerData = peerPayload.getJSONObject("data")
 
-            val incoming = BackupManager.importJson(context, peerData.toString())
+            val incoming = BackupManager.importJson(context, peerData.toString(), syncCode = null)
             repository.mergeAll(incoming)
             prefs.recordSync(peerId, peerName)
 
@@ -189,6 +242,44 @@ class SyncManager(
         SyncOutcome.Error("Timed out waiting for the other phone - try again")
     } catch (e: Exception) {
         SyncOutcome.Error(e.message ?: "Sync failed")
+    }
+
+    /** Same shape as [BackupManager.exportJson] but with fingerprint templates
+     *  included as plain Base64 - safe here specifically because the whole
+     *  frame this gets embedded in is already AES-GCM encrypted before it
+     *  touches the socket (see [performExchange]). [BackupManager.importJson]
+     *  already reads this same legacy "fingerprintTemplateBase64" key when no
+     *  syncCode is supplied, so no separate parser is needed on the way in. */
+    private fun exportJsonWithPlainTemplates(members: List<Member>): String {
+        val json = org.json.JSONObject(BackupManager.exportJson(context, members, syncCode = null))
+        val arr = json.getJSONArray("members")
+        for (i in 0 until arr.length()) {
+            val o = arr.getJSONObject(i)
+            val member = members.getOrNull(i) ?: continue
+            if (member.fingerprintTemplate != null) {
+                o.put(
+                    "fingerprintTemplateBase64",
+                    android.util.Base64.encodeToString(member.fingerprintTemplate, android.util.Base64.NO_WRAP)
+                )
+            }
+        }
+        return json.toString()
+    }
+
+    /** [4-byte big-endian length][payload]. Rejects an implausible length up
+     *  front instead of trying to allocate/read it. */
+    private fun writeFrame(out: DataOutputStream, payload: ByteArray) {
+        out.writeInt(payload.size)
+        out.write(payload)
+        out.flush()
+    }
+
+    private fun readFrame(input: DataInputStream): ByteArray? = try {
+        val len = input.readInt()
+        if (len < 0 || len > MAX_FRAME_BYTES) null
+        else ByteArray(len).also { input.readFully(it) }
+    } catch (e: Exception) {
+        null
     }
 
     private fun sha256(input: String): String {

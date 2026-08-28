@@ -16,7 +16,6 @@ import androidx.core.app.NotificationCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ProcessLifecycleOwner
 import com.majorgym.app.MainActivity
-import com.majorgym.app.data.AppDatabase
 import com.majorgym.app.data.FingerprintScanner
 import com.majorgym.app.data.Member
 import com.majorgym.app.data.MemberStatus
@@ -75,6 +74,14 @@ class FingerprintKioskService : Service() {
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var loopJob: Job? = null
     private var scanner: FingerprintScanner? = null
+
+    /** Routes every read/write of Member data through the same encryption
+     *  Repository the rest of the app uses (fix #7) — this class used to
+     *  query AppDatabase directly, which meant it was comparing a live
+     *  fingerprint capture against the *encrypted* at-rest bytes instead of
+     *  the real template. Going through Repository keeps matching correct
+     *  and keeps attendance writes (below) consistently encrypted too. */
+    private val repository by lazy { com.majorgym.app.data.Repository(applicationContext) }
 
     /**
      * Serializes every full "open device / run loop / close device" cycle so a
@@ -170,7 +177,7 @@ class FingerprintKioskService : Service() {
             // every single scan attempt.
             cacheJob = launch {
                 runCatching {
-                    AppDatabase.get(applicationContext).memberDao().getAll().collect { list ->
+                    repository.observeAll().collect { list ->
                         enrolledCache = list.filter { it.fingerprintTemplate != null }
                             .sortedByDescending { it.lastAttendanceMillis ?: 0L }
                     }
@@ -200,6 +207,20 @@ class FingerprintKioskService : Service() {
                             // for the overlay display above — never a separate lookup.
                             MembershipAudioPlayer.play(applicationContext, audioStatus)
                             notifyIfBackgrounded()
+                            // Fix #12: a successful match must actually record
+                            // attendance, not just show it on screen. One write
+                            // per successful capture — this branch runs exactly
+                            // once per scan, so there's no risk of double-recording
+                            // the same physical scan. Best-effort: a save failure
+                            // here must never crash the kiosk loop or block the
+                            // next scan, so it's caught and logged rather than
+                            // propagated.
+                            launch {
+                                runCatching {
+                                    val now = System.currentTimeMillis()
+                                    repository.save(matched.copy(lastAttendanceMillis = now, updatedAtMillis = now))
+                                }.onFailure { Log.e(TAG, "Failed to record attendance for ${matched.id}: ${it.message}", it) }
+                            }
                             delay(MATCHED_DISPLAY_MS)
                         } else {
                             KioskSound.playError()

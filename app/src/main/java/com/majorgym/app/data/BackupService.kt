@@ -42,8 +42,12 @@ object BackupService {
     suspend fun createZipBackup(context: Context, repository: Repository, destFile: File): File =
         withContext(Dispatchers.IO) {
             try {
-                // Generator
-                val json = BackupManager.exportJson(context, repository.allOnce())
+                // Generator - fingerprint templates are protected using this
+                // device's Sync Code (see BackupManager/CryptoUtils); if none
+                // is set yet, they're simply omitted rather than ever written
+                // out recoverable via a plain Base64 decode.
+                val syncCode = SyncPrefs(context).syncCode
+                val json = BackupManager.exportJson(context, repository.allOnce(), syncCode)
                 // Compressor
                 BackupZip.write(json, destFile)
                 // Validator - reopen the file we just wrote and confirm it's
@@ -96,11 +100,23 @@ object BackupService {
             val invalidReason = validateSchema(json)
             if (invalidReason != null) return@withContext RestoreOutcome.InvalidBackup(invalidReason)
 
+            // Stage: parse into an in-memory list first. BackupManager skips
+            // (never crashes on) any individual malformed record - nothing in
+            // the database is touched during this step either way.
+            val syncCode = SyncPrefs(context).syncCode
             val incoming = try {
-                BackupManager.importJson(context, json)
+                BackupManager.importJson(context, json, syncCode)
             } catch (e: Exception) {
                 return@withContext RestoreOutcome.InvalidBackup(
                     "This backup file's data couldn't be read. It may be corrupted or from an unsupported version."
+                )
+            }
+            if (incoming.isEmpty() && !json.contains("\"members\":[]") && !json.contains("\"members\": []")) {
+                // Every record failed to parse even though the file had a
+                // members array - treat as invalid rather than silently
+                // "restoring" zero members and reporting success.
+                return@withContext RestoreOutcome.InvalidBackup(
+                    "None of the records in this backup could be read. It may be corrupted."
                 )
             }
 
@@ -110,6 +126,11 @@ object BackupService {
                 repository.writeSafetyBackupSnapshot()
             } catch (_: Exception) { /* non-fatal, see doc comment above */ }
 
+            // Restore + verify + commit: Repository.mergeAll's underlying Room
+            // bulk insert runs inside a single transaction, so a failure
+            // partway through never leaves the database half-updated - either
+            // every accepted record lands, or none of them do and existing
+            // data is untouched.
             try {
                 repository.mergeAll(incoming)
                 RestoreOutcome.Success(incoming.size)
@@ -159,7 +180,22 @@ object BackupService {
             if (!root.has("members")) {
                 return "This backup file is missing its member data."
             }
-            root.getJSONArray("members")
+            val members = root.getJSONArray("members")
+            // schemaVersion is informational/forward-looking only: an older
+            // build (no field at all) or a newer, still-"MajorGym" version
+            // both restore fine here - every field read in BackupManager
+            // already has a safe default. Only reject a version that's
+            // obviously not a number at all, which signals real corruption
+            // rather than a legitimate newer schema.
+            if (root.has("schemaVersion") && root.opt("schemaVersion") !is Int && root.opt("schemaVersion") !is Long) {
+                return "This backup file's version marker is invalid."
+            }
+            // Spot-check the array actually holds objects, not e.g. a list of
+            // bare strings/numbers - catches gross corruption early rather
+            // than letting every single record fail individually below.
+            if (members.length() > 0 && members.optJSONObject(0) == null) {
+                return "This backup file's member data is malformed."
+            }
             null
         } catch (e: JSONException) {
             "This backup file isn't valid JSON and may be corrupted."

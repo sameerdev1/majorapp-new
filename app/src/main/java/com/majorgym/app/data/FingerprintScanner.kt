@@ -216,8 +216,19 @@ class FingerprintScanner(private val appContext: Context) {
             if (!receiverRegistered) {
                 val filter = IntentFilter(ACTION_USB_PERMISSION)
                 runCatching {
+                    // NOT_EXPORTED on every supported API level (fix #10): the
+                    // USB permission result is delivered to us directly via the
+                    // explicit PendingIntent below, not via a manifest-style
+                    // broadcast another app needs to be able to send us. There
+                    // is no legitimate reason for a different app to ever be
+                    // able to fire this receiver, and an exported one could
+                    // previously be sent a spoofed ACTION_USB_PERMISSION with
+                    // EXTRA_PERMISSION_GRANTED=true from any app on the device,
+                    // tricking this class's internal state — without granting
+                    // any *real* OS-level USB permission — into believing the
+                    // scanner was authorized when it wasn't.
                     if (Build.VERSION.SDK_INT >= 33) {
-                        appContext.registerReceiver(usbReceiver, filter, Context.RECEIVER_EXPORTED)
+                        appContext.registerReceiver(usbReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
                     } else {
                         appContext.registerReceiver(usbReceiver, filter)
                     }
@@ -226,8 +237,11 @@ class FingerprintScanner(private val appContext: Context) {
             }
             pendingPermission = { granted -> if (cont.isActive) cont.resume(granted) }
             val flags = if (Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_MUTABLE else 0
+            // Explicit package target (belt-and-suspenders alongside
+            // RECEIVER_NOT_EXPORTED above): this PendingIntent can only ever
+            // be fulfilled by delivering it back into this app.
             val permissionIntent = PendingIntent.getBroadcast(
-                appContext, 0, Intent(ACTION_USB_PERMISSION), flags
+                appContext, 0, Intent(ACTION_USB_PERMISSION).setPackage(appContext.packageName), flags
             )
             runCatching { usbManager.requestPermission(device, permissionIntent) }
                 .onFailure { if (cont.isActive) cont.resume(false) }

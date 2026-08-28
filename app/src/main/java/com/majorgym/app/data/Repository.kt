@@ -2,20 +2,50 @@ package com.majorgym.app.data
 
 import android.content.Context
 import android.net.Uri
+import android.util.Log
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
 import java.io.File
+
+private const val TAG = "Repository"
 
 /**
  * All member data (including photos) lives entirely on-device:
  * - structured fields in a local SQLite database (Room)
  * - photos copied into the app's private internal storage as JPEG files
  * Nothing here ever touches the network, so the app works fully offline.
+ *
+ * Fingerprint templates are encrypted at rest (fix #7): everywhere outside
+ * this class, a [Member.fingerprintTemplate] is always plaintext ISO 19794-2
+ * bytes ready to hand to [FingerprintScanner.match] - this class alone is
+ * responsible for encrypting on the way into Room and decrypting on the way
+ * out, via [CryptoUtils]. A template that fails to decrypt (e.g. Keystore key
+ * gone after a factory reset) surfaces as null - "not enrolled" - rather than
+ * crashing, since a stale unusable template is operationally identical to no
+ * template at all and the owner can simply re-enroll.
  */
 class Repository(private val context: Context) {
     private val dao = AppDatabase.get(context).memberDao()
 
-    fun observeAll() = dao.getAll()
-    suspend fun allOnce() = dao.getAllOnce()
-    suspend fun save(member: Member) = dao.upsert(member)
+    fun observeAll() = dao.getAll().map { list -> list.map { it.decryptedForApp() } }
+    suspend fun allOnce() = dao.getAllOnce().map { it.decryptedForApp() }
+    suspend fun save(member: Member) = dao.upsert(member.encryptedForStorage())
+
+    private fun Member.decryptedForApp(): Member {
+        val plain = fingerprintTemplate?.let {
+            CryptoUtils.decryptAtRestOrLegacy(it) ?: run {
+                Log.w(TAG, "Fingerprint template for $id could not be decrypted - treating as not enrolled")
+                null
+            }
+        }
+        return if (plain === fingerprintTemplate) this else copy(fingerprintTemplate = plain)
+    }
+
+    private fun Member.encryptedForStorage(): Member {
+        val encrypted = fingerprintTemplate?.let { CryptoUtils.encryptAtRest(it) }
+        return if (encrypted === fingerprintTemplate) this else copy(fingerprintTemplate = encrypted)
+    }
 
     /** True if some other member already has this phone number (spec section 1: unique phone). */
     suspend fun isPhoneTaken(phone: String, excludingId: String = ""): Boolean =
@@ -40,13 +70,13 @@ class Repository(private val context: Context) {
 
     /** Removes a member's profile photo file, if any (safe no-op if there isn't one). */
     fun deletePhoto(memberId: String) {
-        val f = File(File(context.filesDir, "photos"), "$memberId.jpg")
+        val f = safePhotoFile(File(context.filesDir, "photos"), memberId) ?: return
         if (f.exists()) f.delete()
     }
 
     suspend fun replaceAll(members: List<Member>) {
         dao.clearAll()
-        dao.insertAll(members)
+        dao.insertAll(members.map { it.encryptedForStorage() })
     }
 
     /**
@@ -58,26 +88,17 @@ class Repository(private val context: Context) {
      * Always compresses fresh from the freshly-picked [uri], never re-compresses
      * an already-saved file, so repeated edits can't progressively degrade it.
      * Returns "" if the image couldn't be decoded, instead of throwing.
+     *
+     * Runs on [Dispatchers.IO] (fix #6): decoding/scaling/compressing a
+     * full-resolution camera image is expensive and was previously called
+     * straight from a Compose UI callback on the main thread, which could
+     * visibly freeze the app on a large photo. Callers now suspend from a
+     * coroutine (see MembersViewModel/Screens.kt) instead of blocking the UI.
      */
-    fun savePhoto(memberId: String, uri: Uri): String {
+    suspend fun savePhoto(memberId: String, uri: Uri): String = withContext(Dispatchers.IO) {
         val dir = File(context.filesDir, "photos").apply { mkdirs() }
-        val dest = File(dir, "$memberId.jpg")
-        context.contentResolver.openInputStream(uri)?.use { input ->
-            val original = android.graphics.BitmapFactory.decodeStream(input) ?: return ""
-            val maxDimension = 1600
-            val longSide = maxOf(original.width, original.height)
-            val scale = if (longSide > maxDimension) maxDimension.toFloat() / longSide else 1f
-            val bitmap = if (scale < 1f) {
-                android.graphics.Bitmap.createScaledBitmap(
-                    original, (original.width * scale).toInt(), (original.height * scale).toInt(), true
-                )
-            } else original
-            dest.outputStream().use { output ->
-                bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 85, output)
-            }
-            if (bitmap !== original) original.recycle()
-        } ?: return ""
-        return dest.absolutePath
+        val dest = safePhotoFile(dir, memberId) ?: return@withContext ""
+        compressInto(uri, dest)
     }
 
     /**
@@ -85,10 +106,15 @@ class Repository(private val context: Context) {
      * ID document photos don't need to be full camera resolution, and this
      * keeps a database of 100,000+ members from accumulating huge files.
      * Returns "" if the image couldn't be decoded, instead of throwing.
+     * Runs on [Dispatchers.IO] - see [savePhoto].
      */
-    fun saveIdProofPhoto(memberId: String, uri: Uri): String {
+    suspend fun saveIdProofPhoto(memberId: String, uri: Uri): String = withContext(Dispatchers.IO) {
         val dir = File(context.filesDir, "id_photos").apply { mkdirs() }
-        val dest = File(dir, "$memberId.jpg")
+        val dest = safePhotoFile(dir, memberId) ?: return@withContext ""
+        compressInto(uri, dest)
+    }
+
+    private fun compressInto(uri: Uri, dest: File): String {
         context.contentResolver.openInputStream(uri)?.use { input ->
             val original = android.graphics.BitmapFactory.decodeStream(input) ?: return ""
             val maxDimension = 1600
@@ -109,12 +135,25 @@ class Repository(private val context: Context) {
 
     /** Removes a member's ID proof photo file, if any (safe no-op if there isn't one). */
     fun deleteIdProofPhoto(memberId: String) {
-        val f = File(File(context.filesDir, "id_photos"), "$memberId.jpg")
+        val f = safePhotoFile(File(context.filesDir, "id_photos"), memberId) ?: return
         if (f.exists()) f.delete()
     }
 
+    /** Same path-traversal defense as backup/sync import (fix #1), applied
+     *  consistently here too even though [memberId] is normally an
+     *  app-generated UUID - defense in depth costs nothing and means this
+     *  helper is safe to reuse verbatim if a future caller ever feeds it an
+     *  externally-supplied id. */
+    private fun safePhotoFile(dir: File, memberId: String): File? =
+        try {
+            FileSafety.resolveWithin(dir, memberId, "jpg")
+        } catch (e: FileSafety.UnsafePathException) {
+            Log.w(TAG, "Rejected unsafe photo path for id='$memberId': ${e.message}")
+            null
+        }
+
     suspend fun upsertAll(items: List<Member>) {
-        items.forEach { dao.upsert(it) }
+        items.forEach { save(it) }
     }
 
     /**
@@ -130,7 +169,7 @@ class Repository(private val context: Context) {
             val existing = current[inc.id]
             existing == null || inc.updatedAtMillis >= existing.updatedAtMillis
         }
-        if (toUpsert.isNotEmpty()) dao.insertAll(toUpsert)
+        if (toUpsert.isNotEmpty()) dao.insertAll(toUpsert.map { it.encryptedForStorage() })
     }
 
     // ---------- Share Backup File (Feature 1) ----------
@@ -199,7 +238,8 @@ class Repository(private val context: Context) {
      *  [safetyBackupFile] using the exact same generator/compressor the real
      *  backups use, so it's just as restorable if it's ever needed by hand. */
     suspend fun writeSafetyBackupSnapshot() {
-        val json = BackupManager.exportJson(context, dao.getAllOnce())
+        val syncCode = SyncPrefs(context).syncCode
+        val json = BackupManager.exportJson(context, allOnce(), syncCode)
         BackupZip.write(json, safetyBackupFile())
     }
 }

@@ -35,8 +35,17 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
 
+    <!-- allowBackup=false (fix #13): this app has its own explicit, owner-
+         initiated backup/restore (see BackupService/BackupManager) that the
+         gym owner controls directly. Android's separate Auto Backup mechanism
+         (cloud auto-backup on some OEM builds, or `adb backup`) would
+         otherwise silently copy the entire private app directory - including
+         the member Room database, profile/ID-proof photos, and encrypted
+         fingerprint templates - outside the app's control. Turning it off
+         entirely is the safest option here and doesn't affect the app's own
+         manual backup feature at all, which never used this OS mechanism. -->
     <application
-        android:allowBackup="true"
+        android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:label="@string/app_name"

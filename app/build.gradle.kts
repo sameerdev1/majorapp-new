@@ -26,7 +26,29 @@ android {
 
     buildTypes {
         release {
+            // Release hardening: shrink + obfuscate the release build (fix
+            // "R8/minification is configured appropriately where safe").
+            // Keep rules for the bundled SecuGen SDK/Room/etc. live in
+            // proguard-rules.pro - both jars in app/libs are used via
+            // reflection in places, so they need explicit keeps or R8 will
+            // strip classes the native SDK looks up by name at runtime.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+            // No debug-only behavior ships in release: this app has no
+            // BuildConfig.DEBUG-gated logging or test backdoors to begin
+            // with, and isDebuggable defaults to false for the release
+            // build type, which we rely on rather than overriding.
+        }
+        debug {
+            // Unambiguous even though these are Android Gradle Plugin's own
+            // defaults - makes clear the debug/release split is intentional,
+            // not accidental, per the release-hardening review.
             isMinifyEnabled = false
+            isDebuggable = true
         }
     }
 
