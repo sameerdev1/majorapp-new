@@ -4,6 +4,7 @@ import android.app.Application
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.majorgym.app.data.AttendanceRecord
 import com.majorgym.app.data.BackupService
 import com.majorgym.app.data.Member
 import com.majorgym.app.data.PairedDevice
@@ -13,11 +14,14 @@ import com.majorgym.app.data.RestoreOutcome
 import com.majorgym.app.data.SyncManager
 import com.majorgym.app.data.SyncOutcome
 import com.majorgym.app.data.SyncPrefs
+import com.majorgym.app.data.toMillis
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.io.File
+import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 
@@ -49,7 +53,23 @@ class MembersViewModel(app: Application) : AndroidViewModel(app) {
     fun recordAttendance(member: Member) = viewModelScope.launch {
         val now = System.currentTimeMillis()
         repo.save(member.copy(lastAttendanceMillis = now, updatedAtMillis = now))
+        // Attendance Logs (new feature, additive): also append a permanent
+        // visit row - see Repository.recordAttendanceVisit.
+        repo.recordAttendanceVisit(member.id, now)
     }
+
+    // ---------- Attendance Logs (new feature) ----------
+
+    /** This one calendar day's check-ins only (indexed query - see
+     *  Repository/AttendanceDao) so the Attendance Logs screen stays cheap
+     *  no matter how large the historical log grows. */
+    fun attendanceForDay(day: LocalDate): Flow<List<AttendanceRecord>> =
+        repo.observeAttendanceForDay(day.toMillis())
+
+    /** Recent check-in history for one member, newest first - used by the
+     *  tap-a-record attendance-history view. */
+    fun attendanceHistoryForMember(memberId: String): Flow<List<AttendanceRecord>> =
+        repo.observeAttendanceForMember(memberId)
 
     /** Checks the "phone number already registered" rule before saving (spec section 1). */
     suspend fun isPhoneTaken(phone: String, excludingId: String = ""): Boolean =

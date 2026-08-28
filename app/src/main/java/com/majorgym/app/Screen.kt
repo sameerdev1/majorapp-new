@@ -38,4 +38,12 @@ sealed class Screen {
      *  scanner. Reachable from Profile. [returnTo] is where "Done"/"Back" goes —
      *  Registered right after sign-up, or Profile when re-enrolling later. */
     data class EnrollFingerprint(val id: String, val returnTo: Screen = Profile(id)) : Screen()
+    /** Replaces "Members" in the bottom navigation slot (Members itself is
+     *  unchanged and still reachable via Dashboard -> Total Members). Shows
+     *  real attendance check-ins for a selected date, backed by the new
+     *  [com.majorgym.app.data.AttendanceRecord] log. */
+    data object AttendanceLogs : Screen()
+    /** Reached by tapping an attendance record on [AttendanceLogs]: shows
+     *  that one member's recent day-by-day attendance history. */
+    data class AttendanceHistory(val memberId: String) : Screen()
 }

@@ -139,9 +139,14 @@ fun StatusBadge(status: MemberStatus) {
 
 @Composable
 fun BottomNav(current: Screen, modifier: Modifier = Modifier, onSelect: (Screen) -> Unit) {
+    // "Members" was removed from here (spec: member management is already
+    // reachable from Dashboard -> Total Members via Screen.TotalMembers,
+    // which is untouched). Screen.Members and MembersScreen still exist in
+    // the codebase, unmodified - this list is just where they stop being
+    // reachable from.
     val items = listOf(
         Triple(Screen.Dashboard as Screen, Icons.Filled.Dashboard, "Dashboard"),
-        Triple(Screen.Members as Screen, Icons.Filled.People, "Members"),
+        Triple(Screen.AttendanceLogs as Screen, Icons.Filled.FactCheck, "Attendance Logs"),
         Triple(Screen.Add as Screen, Icons.Filled.PersonAdd, "Add"),
         Triple(Screen.Backup as Screen, Icons.Filled.Storage, "Backup"),
         Triple(Screen.Sync as Screen, Icons.Filled.Sync, "Sync")

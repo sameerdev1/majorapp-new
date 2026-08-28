@@ -219,6 +219,12 @@ class FingerprintKioskService : Service() {
                                 runCatching {
                                     val now = System.currentTimeMillis()
                                     repository.save(matched.copy(lastAttendanceMillis = now, updatedAtMillis = now))
+                                    // Attendance Logs (new feature, additive): also append a
+                                    // permanent visit row so the new Logs screen has real
+                                    // per-day/per-member history to show. Doesn't change what
+                                    // gets written above or how matching/timing/sound/overlay
+                                    // behave.
+                                    repository.recordAttendanceVisit(matched.id, now)
                                 }.onFailure { Log.e(TAG, "Failed to record attendance for ${matched.id}: ${it.message}", it) }
                             }
                             delay(MATCHED_DISPLAY_MS)

@@ -186,6 +186,8 @@ class MainActivity : ComponentActivity() {
                                     showSearch = false, emptyText = "No expired members."
                                 ) { screen = it }
                                 Screen.Attendance -> AttendanceScreen { screen = it }
+                                Screen.AttendanceLogs -> AttendanceLogsScreen(members, vm) { screen = it }
+                                is Screen.AttendanceHistory -> AttendanceHistoryScreen(s.memberId, members, vm) { screen = it }
                                 is Screen.EnrollFingerprint -> {
                                     val m = members.find { it.id == s.id }
                                     if (m != null) EnrollFingerprintScreen(m, vm, s.returnTo) { screen = it }

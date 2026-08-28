@@ -7,9 +7,10 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
-@Database(entities = [Member::class], version = 7, exportSchema = false)
+@Database(entities = [Member::class, AttendanceRecord::class], version = 8, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun memberDao(): MemberDao
+    abstract fun attendanceDao(): AttendanceDao
 
     companion object {
         @Volatile private var INSTANCE: AppDatabase? = null
@@ -65,13 +66,35 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** Attendance Logs (new feature): a new, additive table that logs every
+         *  check-in event going forward - see [AttendanceRecord] for why this is
+         *  needed alongside (not instead of) [Member.lastAttendanceMillis]. Doesn't
+         *  touch the members table at all. */
+        private val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS attendance_records (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        memberId TEXT NOT NULL,
+                        timestampMillis INTEGER NOT NULL,
+                        dayEpoch INTEGER NOT NULL,
+                        session TEXT NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_attendance_records_memberId ON attendance_records(memberId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_attendance_records_dayEpoch ON attendance_records(dayEpoch)")
+            }
+        }
+
         fun get(context: Context): AppDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
                     "major_gym.db"
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7).build().also { INSTANCE = it }
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8).build().also { INSTANCE = it }
             }
     }
 }

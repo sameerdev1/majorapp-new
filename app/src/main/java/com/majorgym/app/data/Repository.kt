@@ -27,10 +27,38 @@ private const val TAG = "Repository"
  */
 class Repository(private val context: Context) {
     private val dao = AppDatabase.get(context).memberDao()
+    private val attendanceDao = AppDatabase.get(context).attendanceDao()
 
     fun observeAll() = dao.getAll().map { list -> list.map { it.decryptedForApp() } }
     suspend fun allOnce() = dao.getAllOnce().map { it.decryptedForApp() }
     suspend fun save(member: Member) = dao.upsert(member.encryptedForStorage())
+
+    // ---------- Attendance Logs (new feature) ----------
+    //
+    // Purely additive: appends one row per check-in to [attendanceDao] on top
+    // of whatever the caller already does with Member.lastAttendanceMillis.
+    // Never replaces, reads, or overwrites that field.
+
+    /** One indexed day's worth of check-ins only - see [AttendanceDao.observeForDay]. */
+    fun observeAttendanceForDay(dayEpochMillis: Long) = attendanceDao.observeForDay(dayEpochMillis)
+
+    /** Recent check-in history for one member, newest first. */
+    fun observeAttendanceForMember(memberId: String) = attendanceDao.observeForMember(memberId)
+
+    /** Appends one new attendance-visit row. Safe to call as many times as a
+     *  member actually checks in that day - each call is a new row, nothing
+     *  is overwritten. */
+    suspend fun recordAttendanceVisit(memberId: String, atMillis: Long = System.currentTimeMillis()) {
+        val day = atMillis.toLocalDate().toMillis()
+        attendanceDao.insert(
+            AttendanceRecord(
+                memberId = memberId,
+                timestampMillis = atMillis,
+                dayEpoch = day,
+                session = sessionOf(atMillis).name
+            )
+        )
+    }
 
     private fun Member.decryptedForApp(): Member {
         val plain = fingerprintTemplate?.let {
