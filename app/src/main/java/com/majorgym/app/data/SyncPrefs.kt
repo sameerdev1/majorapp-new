@@ -12,7 +12,9 @@ data class PairedDevice(val id: String, val name: String, val lastSyncedMillis: 
 /**
  * Stores this device's sync identity, the shared "sync code" for this gym's
  * device circle, and the list of devices it has successfully synced with.
- * The circle is capped at 3 devices total (this device + up to 2 others).
+ * Any number of devices may join the circle - the only requirements are
+ * having the app, the exact matching sync code, and passing the existing
+ * authentication check (see SyncManager).
  *
  * Nothing here is ever transmitted in the clear: only a SHA-256 hash of the
  * sync code is ever sent over the network (see SyncManager), so the code
@@ -44,13 +46,11 @@ class SyncPrefs(context: Context) {
         }
     }
 
-    /** False only if the circle already has [MAX_OTHER_DEVICES] other devices
-     *  and [id] isn't already one of them - i.e. the circle is full. */
-    fun canAdd(id: String): Boolean {
-        val existing = pairedDevices()
-        if (existing.any { it.id == id }) return true
-        return existing.size < MAX_OTHER_DEVICES
-    }
+    /** No device-count cap: any device with a matching sync code may join
+     *  the circle (the actual gate is the code-hash check in SyncManager,
+     *  which this function does not affect). Kept as a function rather than
+     *  removed outright so SyncManager's call site doesn't need to change. */
+    fun canAdd(id: String): Boolean = true
 
     fun recordSync(id: String, name: String) {
         val updated = pairedDevices().filter { it.id != id } + PairedDevice(id, name, System.currentTimeMillis())
@@ -70,8 +70,5 @@ class SyncPrefs(context: Context) {
         private const val KEY_DEVICE_NAME = "device_name"
         private const val KEY_SYNC_CODE = "sync_code"
         private const val KEY_PAIRED = "paired_devices"
-
-        /** Other devices allowed in the circle - this device + 2 others = 3 total. */
-        const val MAX_OTHER_DEVICES = 2
     }
 }

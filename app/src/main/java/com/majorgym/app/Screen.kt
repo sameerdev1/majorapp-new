@@ -18,6 +18,11 @@ sealed class Screen {
      *  member. */
     data class Renewed(val id: String, val justRenewed: Boolean = false) : Screen()
     data object Backup : Screen()
+    /** Reached from the Backup screen's Backup History button: shows the
+     *  lightweight date/time-only log of when backups were taken (see
+     *  [com.majorgym.app.data.BackupHistoryPrefs]) - never the backup
+     *  contents themselves. */
+    data object BackupHistory : Screen()
     data object Sync : Screen()
     /** Reached by tapping the Dashboard's four stat cards. Each just filters
      *  the same [com.majorgym.app.data.Member] list / statusOf logic the

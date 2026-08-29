@@ -114,6 +114,7 @@ class MembersViewModel(app: Application) : AndroidViewModel(app) {
             val file = BackupService.createZipBackup(app, repo, temp)
             // Keep an internal copy for Share Backup File, then clean up the temp export copy.
             file.copyTo(repo.newManualBackupFile(timestampLabel()), overwrite = true)
+            repo.backupHistory.recordBackupTaken()
             onResult(file, null)
         } catch (e: Exception) {
             onResult(null, e.message ?: "The backup could not be completed.")
@@ -134,6 +135,10 @@ class MembersViewModel(app: Application) : AndroidViewModel(app) {
     /** The newest backup on disk, without creating one. Used just to show
      *  filename/size/date on the Share Backup card. */
     fun latestBackupFile(): java.io.File? = repo.latestInternalBackupFile()
+
+    /** Backup History: date/time-only log of backups taken, latest 3 months,
+     *  newest first. See [BackupHistoryPrefs]. */
+    fun backupHistory(): List<Long> = repo.backupHistory.entries()
 
     /** What the Share Backup button calls: returns the latest backup, silently
      *  generating one first if none exists yet. Null only if generation itself fails. */

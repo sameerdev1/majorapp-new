@@ -31,6 +31,8 @@ const val ATTENDANCE_RETENTION_MONTHS = 4L
  * template at all and the owner can simply re-enroll.
  */
 class Repository(private val context: Context) {
+    /** Backup History (date/time-only log, see [BackupHistoryPrefs]'s own doc). */
+    val backupHistory = BackupHistoryPrefs(context)
     private val dao = AppDatabase.get(context).memberDao()
     private val attendanceDao = AppDatabase.get(context).attendanceDao()
 
@@ -250,7 +252,9 @@ class Repository(private val context: Context) {
      *  backups folder - used when Share Backup is tapped and no backup exists
      *  yet at all (spec: never make the owner press Export Backup first). */
     suspend fun createBackupNow(): File =
-        BackupService.createZipBackup(context, this, newManualBackupFile(shareTimestampLabel()))
+        BackupService.createZipBackup(context, this, newManualBackupFile(shareTimestampLabel())).also {
+            backupHistory.recordBackupTaken()
+        }
 
     /** What Share Backup actually calls: the latest backup if one exists, otherwise
      *  generates one on the spot. */

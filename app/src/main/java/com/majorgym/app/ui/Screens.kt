@@ -1385,7 +1385,7 @@ fun RenewalSuccessScreen(member: Member, justRenewed: Boolean = false, onNavigat
 // ---------- Backup ----------
 
 @Composable
-fun BackupScreen(vm: MembersViewModel) {
+fun BackupScreen(vm: MembersViewModel, onNavigate: (Screen) -> Unit) {
     val context = LocalContext.current
     var message by remember { mutableStateOf<String?>(null) }
     var messageIsError by remember { mutableStateOf(false) }
@@ -1453,8 +1453,6 @@ fun BackupScreen(vm: MembersViewModel) {
             .padding(top = 20.dp, bottom = 90.dp)
     ) {
         Text("BACKUP & RESTORE", color = GymColors.Text, fontWeight = FontWeight.ExtraBold, fontSize = 22.sp, letterSpacing = 0.5.sp)
-        Spacer(Modifier.height(4.dp))
-        Text("Export your gym records, or restore them on a new phone.", color = GymColors.TextMuted, fontSize = 13.sp)
         Spacer(Modifier.height(20.dp))
 
         Card(
@@ -1468,8 +1466,6 @@ fun BackupScreen(vm: MembersViewModel) {
                     Spacer(Modifier.width(8.dp))
                     Text("Export All Records", color = GymColors.Text, fontWeight = FontWeight.Bold)
                 }
-                Spacer(Modifier.height(6.dp))
-                Text("Saves every member, photo, plan and payment history to a ZIP file you can store anywhere.", color = GymColors.TextMuted, fontSize = 12.sp)
                 Spacer(Modifier.height(12.dp))
                 val exportInteractionSource = remember { MutableInteractionSource() }
                 Button(
@@ -1505,8 +1501,6 @@ fun BackupScreen(vm: MembersViewModel) {
                     Spacer(Modifier.width(8.dp))
                     Text("Restore Records", color = GymColors.Text, fontWeight = FontWeight.Bold)
                 }
-                Spacer(Modifier.height(6.dp))
-                Text("Reinstalled the app or switched phones? Load your last backup file (.zip or the older .json).", color = GymColors.TextMuted, fontSize = 12.sp)
                 Spacer(Modifier.height(12.dp))
                 OutlinedButton(
                     onClick = { openDoc.launch(arrayOf("application/zip", "application/json", "application/octet-stream")) },
@@ -1539,12 +1533,6 @@ fun BackupScreen(vm: MembersViewModel) {
                     Spacer(Modifier.width(8.dp))
                     Text("Share Backup File", color = GymColors.Text, fontWeight = FontWeight.Bold)
                 }
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    "Quickly share your latest MajorGym backup with WhatsApp, Gmail, Telegram, " +
-                        "Bluetooth, or any other app installed on your phone.",
-                    color = GymColors.TextMuted, fontSize = 12.sp
-                )
                 Spacer(Modifier.height(10.dp))
 
                 if (latestBackup != null) {
@@ -1598,5 +1586,73 @@ fun BackupScreen(vm: MembersViewModel) {
             }
         }
 
+        Spacer(Modifier.height(14.dp))
+        Card(
+            colors = CardDefaults.cardColors(containerColor = GymColors.SurfaceCard),
+            shape = RoundedCornerShape(16.dp),
+            modifier = Modifier.fillMaxWidth().border(1.dp, GymColors.Border, RoundedCornerShape(16.dp))
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onNavigate(Screen.BackupHistory) }
+                    .padding(16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.History, null, tint = GymColors.Accent, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Backup History", color = GymColors.Text, fontWeight = FontWeight.Bold)
+                }
+                Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = GymColors.TextFaint)
+            }
+        }
+
+    }
+}
+
+/**
+ * Backup History (date/time-only, latest 3 months) - see
+ * [com.majorgym.app.data.BackupHistoryPrefs]. Purely a read-only list of
+ * when backups were taken; never shows or stores any actual backup content.
+ */
+@Composable
+fun BackupHistoryScreen(vm: MembersViewModel, onNavigate: (Screen) -> Unit) {
+    val entries = remember { vm.backupHistory() }
+
+    Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp).padding(top = 20.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 16.dp)) {
+            Icon(
+                Icons.Filled.ArrowBack,
+                contentDescription = "Back",
+                tint = GymColors.Text,
+                modifier = Modifier.clickable { onNavigate(Screen.Backup) }
+            )
+            Spacer(Modifier.width(12.dp))
+            Text("BACKUP HISTORY", color = GymColors.Text, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, letterSpacing = 0.5.sp)
+        }
+        if (entries.isEmpty()) {
+            Text("No backups taken yet.", color = GymColors.TextFaint, fontSize = 13.sp)
+        } else {
+            LazyColumn(contentPadding = PaddingValues(bottom = 90.dp)) {
+                items(entries) { millis ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 8.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(GymColors.SurfaceCard)
+                            .border(1.dp, GymColors.Border, RoundedCornerShape(12.dp))
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(formatDate(millis), color = GymColors.Text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                        Text(formatTimeOfDay(millis), color = GymColors.TextMuted, fontSize = 13.sp)
+                    }
+                }
+            }
+        }
     }
 }

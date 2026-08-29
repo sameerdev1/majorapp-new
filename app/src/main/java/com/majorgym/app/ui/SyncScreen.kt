@@ -24,7 +24,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.majorgym.app.MembersViewModel
 import com.majorgym.app.data.SyncOutcome
-import com.majorgym.app.data.SyncPrefs
 import com.majorgym.app.data.formatDate
 
 @Composable
@@ -50,11 +49,6 @@ fun SyncScreen(vm: MembersViewModel) {
             .imePadding()
     ) {
         Text("DEVICE SYNC", color = GymColors.Text, fontWeight = FontWeight.ExtraBold, fontSize = 22.sp, letterSpacing = 0.5.sp)
-        Spacer(Modifier.height(4.dp))
-        Text(
-            "Sync members between up to 3 authorized phones over the same Wi-Fi or hotspot. No internet, no cloud account needed.",
-            color = GymColors.TextMuted, fontSize = 13.sp
-        )
         Spacer(Modifier.height(20.dp))
 
         Card(
@@ -85,12 +79,7 @@ fun SyncScreen(vm: MembersViewModel) {
         ) {
             Column(Modifier.padding(16.dp)) {
                 Text("Sync Circle Code", color = GymColors.Text, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    "Set this once on the first phone, then enter the exact same code on up to 2 other phones. Only devices sharing this code can join this gym's sync circle.",
-                    color = GymColors.TextMuted, fontSize = 12.sp
-                )
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(10.dp))
                 OutlinedTextField(
                     value = codeInput,
                     onValueChange = { codeInput = it.uppercase().filter { c -> c.isLetterOrDigit() }.take(8) },
@@ -174,7 +163,7 @@ fun SyncScreen(vm: MembersViewModel) {
 
         Spacer(Modifier.height(20.dp))
         Text(
-            "PAIRED DEVICES (${paired.size}/${SyncPrefs.MAX_OTHER_DEVICES})",
+            "PAIRED DEVICES (${paired.size})",
             color = GymColors.TextFaint, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp
         )
         Spacer(Modifier.height(8.dp))

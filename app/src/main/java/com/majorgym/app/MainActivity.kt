@@ -171,7 +171,8 @@ class MainActivity : ComponentActivity() {
                                     val m = members.find { it.id == s.id }
                                     if (m != null) RenewalSuccessScreen(m, s.justRenewed) { screen = it }
                                 }
-                                Screen.Backup -> BackupScreen(vm)
+                                Screen.Backup -> BackupScreen(vm) { screen = it }
+                                Screen.BackupHistory -> BackupHistoryScreen(vm) { screen = it }
                                 Screen.Sync -> SyncScreen(vm)
                                 Screen.TotalMembers -> FilteredMembersScreen(
                                     "Total Members", members, showSearch = true, emptyText = "No members yet."
