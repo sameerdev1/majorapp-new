@@ -20,8 +20,14 @@ private const val TAG = "BackupManager"
  *  Sync Code ("fingerprintTemplateProtected", v2 only) - see [exportJson]. A
  *  v2 backup's protected templates can no longer be decrypted (there's no key
  *  left to do it with) and are skipped gracefully on import; everything else
- *  in the record still restores normally. */
-const val BACKUP_SCHEMA_VERSION = 3
+ *  in the record still restores normally.
+ *
+ *  v4: an optional top-level "attendance" array is added alongside "members"
+ *  (Change 2) - see [exportJson]'s attendance parameter and [importAttendance].
+ *  A backup with no attendance key (any older version, or a device-sync
+ *  payload that never included one) simply has no attendance to restore;
+ *  nothing about member restore is affected either way. */
+const val BACKUP_SCHEMA_VERSION = 4
 
 /**
  * Exports/imports the full gym database - including member photos, embedded
@@ -52,7 +58,13 @@ object BackupManager {
      * store safely, so this isn't a new category of exposure - it just stops
      * fingerprint restore from depending on unrelated app state.
      */
-    fun exportJson(context: Context, members: List<Member>): String {
+    /**
+     * [attendance] is optional and defaults to empty, so every existing
+     * caller (device sync, which must keep working exactly as it does today)
+     * is completely unaffected. Only the local ZIP backup path (Change 2)
+     * passes real attendance rows in.
+     */
+    fun exportJson(context: Context, members: List<Member>, attendance: List<AttendanceRecord> = emptyList()): String {
         val arr = JSONArray()
         members.forEach { m ->
             val o = JSONObject()
@@ -100,12 +112,59 @@ object BackupManager {
             if (m.pendingDeletionMillis != null) o.put("pendingDeletionMillis", m.pendingDeletionMillis)
             arr.put(o)
         }
+
+        // Change 2: attendance rows, kept as their own array rather than
+        // nested under each member - a record's link back to its member is
+        // the existing stable memberId, same as everywhere else in the app.
+        val attendanceArr = JSONArray()
+        attendance.forEach { rec ->
+            attendanceArr.put(
+                JSONObject().apply {
+                    put("memberId", rec.memberId)
+                    put("timestampMillis", rec.timestampMillis)
+                    put("dayEpoch", rec.dayEpoch)
+                    put("session", rec.session)
+                }
+            )
+        }
+
         return JSONObject().apply {
             put("app", "MajorGym")
             put("schemaVersion", BACKUP_SCHEMA_VERSION)
             put("exportedAt", System.currentTimeMillis())
             put("members", arr)
+            put("attendance", attendanceArr)
         }.toString()
+    }
+
+    /**
+     * Reads the optional "attendance" array (Change 2, v4+). Missing key (any
+     * older backup, or a device-sync payload) or a malformed individual row
+     * just yields no/fewer attendance records - never a failure, and never
+     * affects member restore, which is parsed and applied separately by
+     * [importJson].
+     */
+    fun importAttendance(json: String): List<AttendanceRecord> {
+        val root = JSONObject(json)
+        val arr = root.optJSONArray("attendance") ?: JSONArray()
+        val result = mutableListOf<AttendanceRecord>()
+        for (i in 0 until arr.length()) {
+            val o = arr.optJSONObject(i) ?: continue
+            val memberId = o.optString("memberId", "")
+            if (memberId.isBlank()) continue
+            val timestampMillis = if (o.has("timestampMillis")) o.optLong("timestampMillis") else continue
+            val session = o.optString("session", "").ifBlank { sessionOf(timestampMillis).name }
+            val dayEpoch = if (o.has("dayEpoch")) o.optLong("dayEpoch") else timestampMillis.toLocalDate().toMillis()
+            result.add(
+                AttendanceRecord(
+                    memberId = memberId,
+                    timestampMillis = timestampMillis,
+                    dayEpoch = dayEpoch,
+                    session = session
+                )
+            )
+        }
+        return result
     }
 
     /**

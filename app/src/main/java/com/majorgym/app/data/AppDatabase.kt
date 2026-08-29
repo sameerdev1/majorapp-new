@@ -7,7 +7,7 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
-@Database(entities = [Member::class, AttendanceRecord::class], version = 8, exportSchema = false)
+@Database(entities = [Member::class, AttendanceRecord::class], version = 9, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun memberDao(): MemberDao
     abstract fun attendanceDao(): AttendanceDao
@@ -88,13 +88,35 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** Add-on: 4-month attendance retention + backup restore (Changes 1 & 2).
+         *  Adds a unique (memberId, timestampMillis) index so repeated backup
+         *  restores can't duplicate a row. A handful of pre-existing rows could
+         *  theoretically already share that pair (only possible if the exact
+         *  same member somehow checked in twice at the exact same millisecond),
+         *  so any such duplicates are collapsed to one row first - otherwise
+         *  creating the unique index below would fail outright. */
+        private val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    DELETE FROM attendance_records WHERE id NOT IN (
+                        SELECT MIN(id) FROM attendance_records GROUP BY memberId, timestampMillis
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS index_attendance_records_memberId_timestampMillis ON attendance_records(memberId, timestampMillis)"
+                )
+            }
+        }
+
         fun get(context: Context): AppDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
                     "major_gym.db"
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8).build().also { INSTANCE = it }
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9).build().also { INSTANCE = it }
             }
     }
 }

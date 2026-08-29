@@ -10,6 +10,11 @@ import java.io.File
 
 private const val TAG = "Repository"
 
+/** Change 1: how many months of attendance history are kept. Shared by
+ *  [Repository.cleanupOldAttendance] (the daily retention delete) and used
+ *  as the default so callers never need to restate the number. */
+const val ATTENDANCE_RETENTION_MONTHS = 4L
+
 /**
  * All member data (including photos) lives entirely on-device:
  * - structured fields in a local SQLite database (Room)
@@ -42,8 +47,34 @@ class Repository(private val context: Context) {
     /** One indexed day's worth of check-ins only - see [AttendanceDao.observeForDay]. */
     fun observeAttendanceForDay(dayEpochMillis: Long) = attendanceDao.observeForDay(dayEpochMillis)
 
-    /** Recent check-in history for one member, newest first. */
+    /** Complete available check-in history for one member, newest first
+     *  (Change 3) - bounded by the 4-month retention cleanup, not a limit
+     *  here. */
     fun observeAttendanceForMember(memberId: String) = attendanceDao.observeForMember(memberId)
+
+    /** All currently-retained attendance rows - used to fold attendance into
+     *  a backup (Change 2). */
+    suspend fun attendanceAllOnce(): List<AttendanceRecord> = attendanceDao.getAllOnce()
+
+    /** Merges attendance rows read from a restored backup. Ids are stripped
+     *  (set to 0, i.e. "assign fresh") before insert since they're per-device
+     *  autoincrement values, not stable identifiers across devices; the
+     *  unique (memberId, timestampMillis) index is what actually prevents a
+     *  record from being duplicated, including across repeated restores of
+     *  the same backup. */
+    suspend fun restoreAttendance(records: List<AttendanceRecord>) {
+        if (records.isEmpty()) return
+        attendanceDao.insertAllIgnoringDuplicates(records.map { it.copy(id = 0) })
+    }
+
+    /** Change 1: deletes attendance older than [retentionMonths] (default 4).
+     *  Called daily by AttendanceRetentionWorker; never touches attendance
+     *  recording, QR/fingerprint check-in logic, or Morning/Evening grouping -
+     *  it only removes rows that already fall outside the retention window. */
+    suspend fun cleanupOldAttendance(retentionMonths: Long = ATTENDANCE_RETENTION_MONTHS) {
+        val cutoffDayEpoch = addMonthsMillis(System.currentTimeMillis(), -retentionMonths)
+        attendanceDao.deleteOlderThan(cutoffDayEpoch)
+    }
 
     /** Appends one new attendance-visit row. Safe to call as many times as a
      *  member actually checks in that day - each call is a new row, nothing
@@ -82,18 +113,22 @@ class Repository(private val context: Context) {
 
     /**
      * Deletes a member and everything tied to them: their database row, their
-     * profile photo file, and their ID proof photo file. Fingerprint templates
-     * live inside the database row itself (a BLOB column, not a separate file),
-     * so deleting the row already takes care of that.
+     * profile photo file, their ID proof photo file, and (Changes 4 & 5) all
+     * of their attendance records. Fingerprint templates live inside the
+     * database row itself (a BLOB column, not a separate file), so deleting
+     * the row already takes care of that.
      *
      * Used by both the manual Delete action and [MembershipCleanupWorker] —
      * previously, deleting a member only removed the database row and silently
      * left orphaned photo files behind forever; this replaces that everywhere.
+     * Being the single shared path for both deletion routes is exactly what
+     * makes it the right place to also add attendance cleanup once, for both.
      */
     suspend fun deleteWithFiles(member: Member) {
         deletePhoto(member.id)
         deleteIdProofPhoto(member.id)
         dao.delete(member)
+        attendanceDao.deleteForMember(member.id)
     }
 
     /** Removes a member's profile photo file, if any (safe no-op if there isn't one). */
@@ -242,7 +277,7 @@ class Repository(private val context: Context) {
      *  [safetyBackupFile] using the exact same generator/compressor the real
      *  backups use, so it's just as restorable if it's ever needed by hand. */
     suspend fun writeSafetyBackupSnapshot() {
-        val json = BackupManager.exportJson(context, allOnce())
+        val json = BackupManager.exportJson(context, allOnce(), attendanceAllOnce())
         BackupZip.write(json, safetyBackupFile())
     }
 }

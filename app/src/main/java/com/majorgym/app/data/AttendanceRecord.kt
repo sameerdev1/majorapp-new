@@ -20,7 +20,15 @@ import java.time.ZoneId
  */
 @Entity(
     tableName = "attendance_records",
-    indices = [Index("memberId"), Index("dayEpoch")]
+    indices = [
+        Index("memberId"),
+        Index("dayEpoch"),
+        // Retention (Change 1) + backup restore (Change 2): a real check-in
+        // can't happen twice for the same member at the exact same
+        // millisecond, so this doubles as the "don't duplicate on repeated
+        // restore" guard - see AttendanceDao.insertAllIgnoringDuplicates.
+        Index(value = ["memberId", "timestampMillis"], unique = true)
+    ]
 )
 data class AttendanceRecord(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,

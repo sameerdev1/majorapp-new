@@ -33,6 +33,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.core.content.ContextCompat
+import com.majorgym.app.data.AttendanceRetentionWorker
 import com.majorgym.app.data.MembershipCleanupWorker
 import com.majorgym.app.ui.*
 
@@ -46,6 +47,11 @@ class MainActivity : ComponentActivity() {
         // launch — WorkManager's KEEP policy no-ops if it's already scheduled,
         // so this never creates duplicate jobs or resets the run cadence.
         MembershipCleanupWorker.schedule(applicationContext)
+        // Change 1: schedules the daily attendance-retention cleanup
+        // (deletes attendance older than 4 months). Separate worker, own
+        // unique work name — does not touch MembershipCleanupWorker's
+        // timing/conditions at all.
+        AttendanceRetentionWorker.schedule(applicationContext)
         setContent {
             MajorGymTheme {
                 var showSplash by remember { mutableStateOf(true) }

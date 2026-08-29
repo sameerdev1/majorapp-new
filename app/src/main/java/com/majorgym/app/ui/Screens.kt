@@ -1421,7 +1421,8 @@ fun BackupScreen(vm: MembersViewModel) {
             vm.importBackup(uri) { outcome ->
                 when (outcome) {
                     is RestoreOutcome.Success -> {
-                        message = "Records restored."
+                        message = "Records restored." +
+                            if (outcome.attendanceRestored > 0) " ${outcome.attendanceRestored} attendance record(s) restored." else ""
                         messageIsError = false
                         refreshLatestBackup()
                     }

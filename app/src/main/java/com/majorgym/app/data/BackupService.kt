@@ -10,7 +10,11 @@ import java.io.File
 
 /** Outcome of importing+restoring a backup file (ZIP or plain JSON). */
 sealed class RestoreOutcome {
-    data class Success(val recordsRestored: Int) : RestoreOutcome()
+    /** [attendanceRestored] counts rows actually merged in (Change 2) - a
+     *  repeated restore of the same backup can legitimately report 0 here
+     *  even on success, since duplicates of already-present rows are skipped
+     *  by design, not an error. */
+    data class Success(val recordsRestored: Int, val attendanceRestored: Int = 0) : RestoreOutcome()
     /** The file itself is bad - corrupt zip, missing backup.json, invalid JSON,
      *  unsupported schema. Nothing was touched. */
     data class InvalidBackup(val reason: String) : RestoreOutcome()
@@ -41,8 +45,10 @@ object BackupService {
     suspend fun createZipBackup(context: Context, repository: Repository, destFile: File): File =
         withContext(Dispatchers.IO) {
             try {
-                // Generator
-                val json = BackupManager.exportJson(context, repository.allOnce())
+                // Generator - Change 2: attendance rows ride along with members
+                // in the same backup.json, using the existing exportJson entry
+                // point rather than a separate backup system.
+                val json = BackupManager.exportJson(context, repository.allOnce(), repository.attendanceAllOnce())
                 // Compressor
                 BackupZip.write(json, destFile)
                 // Validator - reopen the file we just wrote and confirm it's
@@ -127,7 +133,13 @@ object BackupService {
             // data is untouched.
             try {
                 repository.mergeAll(incoming)
-                RestoreOutcome.Success(incoming.size)
+                // Change 2: attendance restores after members, so every
+                // incoming attendance row's memberId already has its member
+                // in place. Duplicate rows (e.g. re-restoring the same
+                // backup) are silently skipped - see Repository.restoreAttendance.
+                val incomingAttendance = BackupManager.importAttendance(json)
+                repository.restoreAttendance(incomingAttendance)
+                RestoreOutcome.Success(incoming.size, incomingAttendance.size)
             } catch (e: Exception) {
                 RestoreOutcome.RestoreFailed(
                     e.message ?: "Restore could not be completed. Your existing data has not been changed."

@@ -275,10 +275,21 @@ private fun statusLabel(status: MemberStatus): String = when (status) {
 }
 
 /**
- * Section 7: tap-through attendance history for one member, covering the
- * last two weeks - present days show their check-in time, absent days say
- * so, exactly like the spec's example. Read-only: never writes, edits, or
- * deletes any attendance record.
+ * Change 3: tap-through attendance history for one member, showing every
+ * real check-in still within the 4-month retention window, grouped by month
+ * (newest month first, newest visit first within a month) - e.g.:
+ *
+ *   August 2026
+ *   28 Aug — 08:42 AM — Morning
+ *   27 Aug — 08:51 AM — Morning
+ *
+ *   July 2026
+ *   31 Jul — 08:40 AM — Morning
+ *
+ * Reads only [AttendanceRecord] rows the app already recorded - never
+ * generates a record, and never writes, edits, or deletes one. Whatever
+ * remains after the daily retention cleanup (Change 1) is exactly what shows
+ * up here; there's no separate lookback window of its own.
  */
 @Composable
 fun AttendanceHistoryScreen(memberId: String, members: List<Member>, vm: MembersViewModel, onNavigate: (Screen) -> Unit) {
@@ -286,10 +297,13 @@ fun AttendanceHistoryScreen(memberId: String, members: List<Member>, vm: Members
     val records by produceState(initialValue = emptyList<AttendanceRecord>(), memberId) {
         vm.attendanceHistoryForMember(memberId).collect { value = it }
     }
-    val earliestByDay = remember(records) {
-        records.groupBy { it.dayEpoch }.mapValues { (_, recs) -> recs.minByOrNull { it.timestampMillis }!! }
+    // Grouped by calendar month, newest first; within a month, newest visit
+    // first - matches the spec's example layout exactly.
+    val byMonth = remember(records) {
+        records
+            .sortedByDescending { it.timestampMillis }
+            .groupBy { it.timestampMillis.toLocalDate().let { d -> java.time.YearMonth.from(d) } }
     }
-    val last14Days = remember { (0 until 14).map { LocalDate.now().minusDays(it.toLong()) } }
 
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp).padding(top = 20.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 4.dp)) {
@@ -300,39 +314,50 @@ fun AttendanceHistoryScreen(memberId: String, members: List<Member>, vm: Members
                 modifier = Modifier.clickable { onNavigate(Screen.AttendanceLogs) }
             )
             Spacer(Modifier.width(12.dp))
-            Text(member?.name ?: "Attendance History", color = GymColors.Text, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp)
+            Column {
+                Text(member?.name ?: "Attendance History", color = GymColors.Text, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp)
+                if (member != null) {
+                    Text(member.phone, color = GymColors.TextMuted, fontSize = 13.sp)
+                }
+            }
         }
         Text(
-            "Attendance History", color = GymColors.TextFaint, fontSize = 11.sp, fontWeight = FontWeight.Bold,
+            "ATTENDANCE HISTORY", color = GymColors.TextFaint, fontSize = 11.sp, fontWeight = FontWeight.Bold,
             letterSpacing = 0.5.sp, modifier = Modifier.padding(top = 8.dp, bottom = 8.dp)
         )
+        if (byMonth.isEmpty()) {
+            Text("No attendance recorded yet.", color = GymColors.TextFaint, fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp))
+        }
         LazyColumn(contentPadding = PaddingValues(bottom = 90.dp)) {
-            items(last14Days) { day ->
-                val rec = earliestByDay[day.toMillis()]
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 8.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(GymColors.SurfaceCard)
-                        .border(1.dp, GymColors.Border, RoundedCornerShape(12.dp))
-                        .padding(horizontal = 14.dp, vertical = 12.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    val today = day == LocalDate.now()
+            byMonth.forEach { (month, monthRecords) ->
+                item(key = "header_$month") {
                     Text(
-                        formatDate(day.toMillis()) + if (today) " (Today)" else "",
-                        color = GymColors.Text, fontSize = 13.sp, fontWeight = FontWeight.Medium
+                        month.month.getDisplayName(java.time.format.TextStyle.FULL, java.util.Locale.ENGLISH) + " " + month.year,
+                        color = GymColors.Text, fontSize = 14.sp, fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(top = 12.dp, bottom = 6.dp)
                     )
-                    if (rec != null) {
+                }
+                items(monthRecords, key = { it.id }) { rec ->
+                    val sessionLabel = if (rec.session == AttendanceSession.MORNING.name) "Morning" else "Evening"
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 8.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(GymColors.SurfaceCard)
+                            .border(1.dp, GymColors.Border, RoundedCornerShape(12.dp))
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(formatDate(rec.timestampMillis), color = GymColors.Text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Filled.Check, contentDescription = null, tint = GymColors.Success, modifier = Modifier.size(14.dp))
                             Spacer(Modifier.width(6.dp))
                             Text(formatTimeOfDay(rec.timestampMillis), color = GymColors.Success, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                            Spacer(Modifier.width(8.dp))
+                            Text(sessionLabel, color = GymColors.TextFaint, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                         }
-                    } else {
-                        Text("No attendance", color = GymColors.TextFaint, fontSize = 12.sp)
                     }
                 }
             }
