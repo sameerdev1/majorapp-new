@@ -11,6 +11,14 @@ interface AttendanceDao {
     @Insert
     suspend fun insert(record: AttendanceRecord)
 
+    /** Applies one attendance row learned from a synced device's change log.
+     *  Safe to call any number of times for the same record (repeated sync
+     *  runs, gossip relaying it a second time, etc.) - the unique globalId
+     *  and (memberId, timestampMillis) indices both make a duplicate a silent
+     *  no-op rather than a second row (fix #2: "no duplicate attendance"). */
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertIgnoringDuplicate(record: AttendanceRecord)
+
     /** Scoped to a single calendar day (indexed on dayEpoch) so the
      *  Attendance Logs screen only ever loads that one day's rows, no
      *  matter how large the historical log grows (spec section 12:

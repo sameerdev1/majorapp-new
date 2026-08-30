@@ -9,17 +9,29 @@ import android.net.Uri
  *  update add-on). */
 object WhatsAppShare {
 
+    /** Client App download link appended to every new-member WhatsApp receipt
+     *  (Part 4) - must stay exactly this URL. */
+    private const val CLIENT_APP_LINK = "https://drive.google.com/file/d/17vqZ6Y95e1GzWlVwE8v6aQDtTQmOeXd0/view?usp=sharing"
+
     fun welcomeMessage(member: Member, passkey: String): String = buildString {
-        appendLine("Thank you for joining Major Gym.")
+        appendLine("\uD83C\uDFCB\uFE0F MAJOR GYM")
+        appendLine("\uD83C\uDF89 Welcome! Your membership is now active.")
         appendLine()
-        appendLine("Membership: ${member.plan}")
-        appendLine("Start Date: ${formatDate(member.joinedMillis)}")
-        appendLine("Expiry Date: ${formatDate(member.expiryMillis)}")
-        appendLine("Phone Number: ${member.phone}")
-        appendLine("Temporary Passkey: $passkey")
+        appendLine("\uD83D\uDCCB Membership Details")
+        appendLine("Plan: ${member.plan}")
+        appendLine("Start: ${formatDate(member.joinedMillis)}")
+        appendLine("Expiry: ${formatDate(member.expiryMillis)}")
+        appendLine("Phone: ${member.phone}")
+        // Not part of the fixed structure below, but kept from the existing
+        // receipt (Part 4: "preserve existing receipt behavior wherever
+        // possible") - the client app needs this passkey to log the member
+        // in, so dropping it would break the very Client App download this
+        // section is promoting.
+        appendLine("Passkey: $passkey")
         appendLine()
-        appendLine("Install the Major Gym Client App.")
-        appendLine("Welcome to Major Gym.")
+        appendLine("\uD83D\uDCF1 Client App")
+        appendLine("Download the Major Gym Client App:")
+        appendLine("\uD83D\uDC49 $CLIENT_APP_LINK")
     }
 
     /**

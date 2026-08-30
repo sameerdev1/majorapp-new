@@ -7,10 +7,11 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
-@Database(entities = [Member::class, AttendanceRecord::class], version = 9, exportSchema = false)
+@Database(entities = [Member::class, AttendanceRecord::class, SyncChangeLogEntry::class], version = 11, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun memberDao(): MemberDao
     abstract fun attendanceDao(): AttendanceDao
+    abstract fun syncChangeLogDao(): SyncChangeLogDao
 
     companion object {
         @Volatile private var INSTANCE: AppDatabase? = null
@@ -110,13 +111,68 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** Device Sync fix #2: attendance rows need a globally unique id (not
+         *  just the per-device autoincrement [AttendanceRecord.id]) so the
+         *  change log can reference them the same way on every device - see
+         *  [AttendanceRecord.globalId]. SQLite can't fill an ADD COLUMN with
+         *  a per-row random default directly, so this adds the column with a
+         *  neutral '' default first, then fills every existing row with a
+         *  real random id before the unique index is created (would fail on
+         *  the very first migrate() otherwise, since every pre-existing row
+         *  would still share the same '' value). */
+        private val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE attendance_records ADD COLUMN globalId TEXT NOT NULL DEFAULT ''")
+                db.execSQL(
+                    """
+                    UPDATE attendance_records SET globalId =
+                        lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-' ||
+                        lower(hex(randomblob(2))) || '-' || lower(hex(randomblob(2))) || '-' ||
+                        lower(hex(randomblob(6)))
+                    WHERE globalId = ''
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_attendance_records_globalId ON attendance_records(globalId)")
+            }
+        }
+
+        /** Device Sync fixes #1-#3: the change/event log Sync now replicates
+         *  instead of comparing whole-record snapshots - see
+         *  [SyncChangeLogEntry]'s class doc for why. A brand-new, empty table;
+         *  existing Members/Attendance rows are untouched and simply have no
+         *  history yet (their next edit on each device starts building it). */
+        private val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS sync_change_log (
+                        changeId TEXT PRIMARY KEY NOT NULL,
+                        entityType TEXT NOT NULL,
+                        recordId TEXT NOT NULL,
+                        operation TEXT NOT NULL,
+                        originDeviceId TEXT NOT NULL,
+                        seq INTEGER NOT NULL,
+                        timestampMillis INTEGER NOT NULL,
+                        fieldsJson TEXT
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_sync_change_log_originDeviceId_seq ON sync_change_log(originDeviceId, seq)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_sync_change_log_recordId ON sync_change_log(recordId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_sync_change_log_entityType ON sync_change_log(entityType)")
+            }
+        }
+
         fun get(context: Context): AppDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
                     "major_gym.db"
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9).build().also { INSTANCE = it }
+                ).addMigrations(
+                    MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6,
+                    MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11
+                ).build().also { INSTANCE = it }
             }
     }
 }

@@ -25,6 +25,9 @@ private const val NONCE_BYTES = 32
 private const val MAX_FRAME_BYTES = 64 * 1024 * 1024
 
 sealed class SyncOutcome {
+    /** [recordCount] = how many change-log entries (Member adds/edits/
+     *  deletes, attendance visits - see [SyncChangeLogEntry]) this device
+     *  actually learned that it didn't already have. */
     data class Success(val peerName: String, val recordCount: Int) : SyncOutcome()
     data object NoCodeSet : SyncOutcome()
     data object NotFound : SyncOutcome()
@@ -205,53 +208,68 @@ class SyncManager(
 
             // --- From here on, every frame is AES-256-GCM encrypted under
             // the same code-derived key - confidentiality AND tamper
-            // detection for the actual member data, per fix #2/#8. Templates
-            // travel as plaintext-within-this-encrypted-frame (not a second,
-            // weaker encryption layer inside the JSON) - the receiving device
-            // re-encrypts them at rest with its own Keystore key the moment
-            // Repository.mergeAll saves them. ---
-            val members = repository.allOnce()
-            val myPayload = JSONObject().apply {
+            // detection, per fix #2/#8. Photo/ID-photo/fingerprint bytes
+            // embedded inside a change's fields travel as plaintext-within-
+            // this-encrypted-frame (not a second, weaker encryption layer of
+            // their own) - the receiving device re-encrypts fingerprint
+            // templates at rest with its own Keystore key the moment
+            // Repository applies the change (see SyncChangeCodec.decodeMemberFields
+            // + Repository.encryptedForStorage). ---
+            //
+            // Two-way, fault-tolerant sync (fixes #1-#3): instead of trading
+            // full member snapshots and picking a winner by comparing
+            // updatedAtMillis, each side first tells the other exactly which
+            // changes it already knows about (a per-device sequence "version
+            // vector" - see Repository.localVersionVector), then sends only
+            // what the other side is actually missing. This is what makes an
+            // offline device catch up correctly no matter how long it was
+            // gone, makes a repeated sync a no-op (idempotent), and makes
+            // deletions - and independent field-level edits - propagate
+            // exactly once each rather than being inferred from a snapshot
+            // diff.
+            val myVector = repository.localVersionVector()
+            val myIdentity = JSONObject().apply {
                 put("deviceId", prefs.deviceId)
                 put("deviceName", prefs.deviceName)
-                put("data", JSONObject(exportJsonWithPlainTemplates(members)))
+                put("versionVector", SyncChangeCodec.encodeVersionVector(myVector))
             }
+            writeFrame(out, CryptoUtils.aesGcmEncrypt(myIdentity.toString().toByteArray(Charsets.UTF_8), channelKey))
 
-            val encryptedOut = CryptoUtils.aesGcmEncrypt(myPayload.toString().toByteArray(Charsets.UTF_8), channelKey)
-            writeFrame(out, encryptedOut)
+            val identityFrame = readFrame(input) ?: return SyncOutcome.Error("Connection closed while exchanging device info")
+            val identityBytes = try {
+                CryptoUtils.aesGcmDecrypt(identityFrame, channelKey)
+            } catch (e: Exception) {
+                return SyncOutcome.Error("The received data failed integrity verification")
+            }
+            val peerIdentity = JSONObject(String(identityBytes, Charsets.UTF_8))
+            val peerId = peerIdentity.getString("deviceId")
+            val peerName = peerIdentity.optString("deviceName", "Unknown device")
+            val peerVector = SyncChangeCodec.decodeVersionVector(peerIdentity.optJSONObject("versionVector") ?: JSONObject())
 
-            val encryptedIn = readFrame(input) ?: return SyncOutcome.Error("Connection closed while exchanging records")
-            val decrypted = try {
-                CryptoUtils.aesGcmDecrypt(encryptedIn, channelKey)
+            val outgoingChanges = repository.changesMissingForPeer(peerVector)
+            val outgoingPayload = JSONObject().apply { put("changes", SyncChangeCodec.encodeChangeLog(outgoingChanges)) }
+            writeFrame(out, CryptoUtils.aesGcmEncrypt(outgoingPayload.toString().toByteArray(Charsets.UTF_8), channelKey))
+
+            val changesFrame = readFrame(input) ?: return SyncOutcome.Error("Connection closed while exchanging records")
+            val changesBytes = try {
+                CryptoUtils.aesGcmDecrypt(changesFrame, channelKey)
             } catch (e: Exception) {
                 // GCM auth failure = tampered or corrupted in transit.
                 return SyncOutcome.Error("The received data failed integrity verification")
             }
-            val peerPayload = JSONObject(String(decrypted, Charsets.UTF_8))
-            val peerId = peerPayload.getString("deviceId")
-            val peerName = peerPayload.optString("deviceName", "Unknown device")
-            val peerData = peerPayload.getJSONObject("data")
+            val incomingPayload = JSONObject(String(changesBytes, Charsets.UTF_8))
+            val incomingChanges = SyncChangeCodec.decodeChangeLog(incomingPayload.optJSONArray("changes") ?: org.json.JSONArray())
 
-            val incoming = BackupManager.importJson(context, peerData.toString())
-            repository.mergeAll(incoming)
+            val appliedCount = repository.applyRemoteChanges(incomingChanges)
             prefs.recordSync(peerId, peerName)
 
-            SyncOutcome.Success(peerName, incoming.size)
+            SyncOutcome.Success(peerName, appliedCount)
         }
     } catch (e: java.net.SocketTimeoutException) {
         SyncOutcome.Error("Timed out waiting for the other phone - try again")
     } catch (e: Exception) {
         SyncOutcome.Error(e.message ?: "Sync failed")
     }
-
-    /** [BackupManager.exportJson] already embeds fingerprint templates as
-     *  plain Base64 under "fingerprintTemplateBase64" (fix #1) - safe here
-     *  specifically because the whole frame this gets embedded in is already
-     *  AES-GCM encrypted before it touches the socket (see [performExchange]).
-     *  [BackupManager.importJson] reads that same key on the way in, so no
-     *  separate parser is needed for the sync path either. */
-    private fun exportJsonWithPlainTemplates(members: List<Member>): String =
-        BackupManager.exportJson(context, members)
 
     /** [4-byte big-endian length][payload]. Rejects an implausible length up
      *  front instead of trying to allocate/read it. */
