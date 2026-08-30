@@ -99,6 +99,8 @@ class Repository(private val context: Context) {
                         fieldsJson = SyncChangeCodec.encodeMember(toStore, changedKeys).toString()
                     )
                 )
+            } else {
+                Unit
             }
         }
     }
