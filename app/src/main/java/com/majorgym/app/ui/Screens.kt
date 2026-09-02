@@ -270,7 +270,7 @@ fun DatePickerField(date: LocalDate, onChange: (LocalDate) -> Unit) {
 
 @Composable
 @OptIn(ExperimentalFoundationApi::class)
-fun DashboardScreen(members: List<Member>, holdMembersCount: Int = 0, onNavigate: (Screen) -> Unit) {
+fun DashboardScreen(members: List<Member>, holdMembersCount: Int = 0, dueMembersCount: Int = 0, onNavigate: (Screen) -> Unit) {
     val active = members.count { statusOf(it.expiryMillis) == MemberStatus.ACTIVE }
     val expiring = members.count { statusOf(it.expiryMillis) == MemberStatus.EXPIRING }
     val expired = members.count { statusOf(it.expiryMillis) == MemberStatus.EXPIRED }
@@ -281,34 +281,90 @@ fun DashboardScreen(members: List<Member>, holdMembersCount: Int = 0, onNavigate
         }
         .sortedBy { it.expiryMillis }
 
+    // Features 3 & 4: privacy is a pure display preference (see
+    // DashboardPrivacyPrefs) - it never touches member data, membership
+    // status, Sync, Backup, fingerprint, or attendance. Read once per
+    // Dashboard entry and written straight back on every toggle so the
+    // choice survives navigating away and reopening the app.
+    val context = LocalContext.current
+    val privacyPrefs = remember { DashboardPrivacyPrefs(context) }
+    var masterPrivacyOn by remember { mutableStateOf(privacyPrefs.masterPrivacyOn) }
+    var showCardSettings by remember { mutableStateOf(false) }
+    var totalVisible by remember { mutableStateOf(privacyPrefs.isNumberVisible(DashboardCard.TOTAL)) }
+    var activeVisible by remember { mutableStateOf(privacyPrefs.isNumberVisible(DashboardCard.ACTIVE)) }
+    var expiringVisible by remember { mutableStateOf(privacyPrefs.isNumberVisible(DashboardCard.EXPIRING)) }
+    var expiredVisible by remember { mutableStateOf(privacyPrefs.isNumberVisible(DashboardCard.EXPIRED)) }
+    var holdVisible by remember { mutableStateOf(privacyPrefs.isNumberVisible(DashboardCard.HOLD)) }
+    var dueVisible by remember { mutableStateOf(privacyPrefs.isNumberVisible(DashboardCard.DUE)) }
+
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
         contentPadding = PaddingValues(top = 20.dp, bottom = 90.dp)
     ) {
         item {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                 Box(Modifier.clip(RoundedCornerShape(10.dp)).background(GymColors.Accent).padding(8.dp)) {
                     Icon(Icons.Filled.FitnessCenter, null, tint = Color.Black, modifier = Modifier.size(20.dp))
                 }
                 Spacer(Modifier.width(10.dp))
-                Column {
+                Column(Modifier.weight(1f)) {
                     Text("MAJOR GYM", color = GymColors.Text, fontWeight = FontWeight.ExtraBold, fontSize = 22.sp, letterSpacing = 0.5.sp)
                     Text("Membership & Biometric Kiosk", color = GymColors.TextMuted, fontSize = 12.sp)
+                }
+                // Feature 3: per-card number visibility settings - hidden
+                // while Master Privacy is on, since it isn't one of the
+                // three things allowed to remain visible in that mode.
+                if (!masterPrivacyOn) {
+                    IconButton(onClick = { showCardSettings = true }) {
+                        Icon(Icons.Filled.Settings, contentDescription = "Dashboard number visibility settings", tint = GymColors.TextMuted)
+                    }
+                }
+                // Feature 4: master Dashboard privacy switch - top-right,
+                // always visible (on or off), purely visual/local, never
+                // touches member data or any other system.
+                IconButton(onClick = {
+                    masterPrivacyOn = !masterPrivacyOn
+                    privacyPrefs.masterPrivacyOn = masterPrivacyOn
+                }) {
+                    Icon(
+                        if (masterPrivacyOn) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                        contentDescription = if (masterPrivacyOn) "Privacy mode on - tap to show Dashboard" else "Privacy mode off - tap to hide Dashboard",
+                        tint = if (masterPrivacyOn) GymColors.Accent else GymColors.TextMuted
+                    )
                 }
             }
             Spacer(Modifier.height(16.dp))
         }
+        if (masterPrivacyOn) {
+            // Feature 4: master privacy is ON - nothing else on the Dashboard
+            // renders. No member counts, no Hold/Due rows, no attention list.
+            // This is purely visual: nothing is deleted, disabled, or changed -
+            // turning it back off (the eye icon above) instantly restores
+            // everything exactly as it was, including each card's own
+            // individual ON/OFF choice from Feature 3.
+            item {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(top = 60.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(Icons.Filled.VisibilityOff, contentDescription = null, tint = GymColors.TextFaint, modifier = Modifier.size(36.dp))
+                    Spacer(Modifier.height(10.dp))
+                    Text("Dashboard Privacy Mode is ON", color = GymColors.TextFaint, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                }
+            }
+        } else {
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(bottom = 10.dp)) {
-                // Fix #1: the Total Members card keeps its button/tap behavior
-                // (still opens the full member list via Screen.TotalMembers) -
-                // it just no longer displays a numeric count anywhere on the card.
-                StatCard("Total Members", null, Modifier.weight(1f)) { onNavigate(Screen.TotalMembers) }
-                StatCard("Active", active.toString(), Modifier.weight(1f)) { onNavigate(Screen.ActiveMembers) }
+                // Fix #1 / Feature 3: Total Members keeps its button/tap
+                // behavior (still opens the full member list) regardless -
+                // only whether the number itself is shown is now the
+                // owner's own per-card choice (see the settings gear above).
+                StatCard("Total Members", if (totalVisible) members.size.toString() else null, Modifier.weight(1f)) { onNavigate(Screen.TotalMembers) }
+                StatCard("Active", if (activeVisible) active.toString() else null, Modifier.weight(1f)) { onNavigate(Screen.ActiveMembers) }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(bottom = 14.dp)) {
-                StatCard("Expiring Soon", expiring.toString(), Modifier.weight(1f)) { onNavigate(Screen.ExpiringMembers) }
-                StatCard("Expired", expired.toString(), Modifier.weight(1f)) { onNavigate(Screen.ExpiredMembers) }
+                StatCard("Expiring Soon", if (expiringVisible) expiring.toString() else null, Modifier.weight(1f)) { onNavigate(Screen.ExpiringMembers) }
+                StatCard("Expired", if (expiredVisible) expired.toString() else null, Modifier.weight(1f)) { onNavigate(Screen.ExpiredMembers) }
             }
         }
         item {
@@ -341,8 +397,48 @@ fun DashboardScreen(members: List<Member>, holdMembersCount: Int = 0, onNavigate
                         color = GymColors.TextFaint, fontSize = 12.sp, modifier = Modifier.padding(top = 2.dp)
                     )
                 }
-                Text(holdMembersCount.toString(), color = GymColors.Warning, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.width(8.dp))
+                if (holdVisible) {
+                    Text(holdMembersCount.toString(), color = GymColors.Warning, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.width(8.dp))
+                }
+                Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = GymColors.TextFaint)
+            }
+            Spacer(Modifier.height(14.dp))
+        }
+        item {
+            // Feature 1: Due Members - a payment-status filter, independent
+            // of membership status. An ACTIVE member with a due amount still
+            // appears in Active/Total Members above as well as here.
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(GymColors.SurfaceCard)
+                    .border(1.dp, GymColors.Border, RoundedCornerShape(16.dp))
+                    .clickable { onNavigate(Screen.DueMembers) }
+                    .padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(GymColors.Danger.copy(alpha = 0.15f))
+                        .padding(10.dp)
+                ) {
+                    Icon(Icons.Filled.CurrencyRupee, contentDescription = null, tint = GymColors.Danger, modifier = Modifier.size(22.dp))
+                }
+                Spacer(Modifier.width(14.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("Due Members", color = GymColors.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "Members with an outstanding due amount",
+                        color = GymColors.TextFaint, fontSize = 12.sp, modifier = Modifier.padding(top = 2.dp)
+                    )
+                }
+                if (dueVisible) {
+                    Text(dueMembersCount.toString(), color = GymColors.Danger, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.width(8.dp))
+                }
                 Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = GymColors.TextFaint)
             }
             Spacer(Modifier.height(14.dp))
@@ -379,6 +475,62 @@ fun DashboardScreen(members: List<Member>, holdMembersCount: Int = 0, onNavigate
                 }
             }
         }
+        } // end of `else` (masterPrivacyOn == false) started above
+    }
+
+    if (showCardSettings) {
+        AlertDialog(
+            onDismissRequest = { showCardSettings = false },
+            containerColor = GymColors.SurfaceCard,
+            title = { Text("Dashboard Number Visibility", color = GymColors.Text, fontWeight = FontWeight.Bold) },
+            text = {
+                Column {
+                    Text(
+                        "Each card's number can be shown or hidden independently. The card itself always stays visible and tappable.",
+                        color = GymColors.TextFaint, fontSize = 12.sp, modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                    DashboardVisibilityRow("Total Members", totalVisible) {
+                        totalVisible = it; privacyPrefs.setNumberVisible(DashboardCard.TOTAL, it)
+                    }
+                    DashboardVisibilityRow("Active Members", activeVisible) {
+                        activeVisible = it; privacyPrefs.setNumberVisible(DashboardCard.ACTIVE, it)
+                    }
+                    DashboardVisibilityRow("Expiring Soon", expiringVisible) {
+                        expiringVisible = it; privacyPrefs.setNumberVisible(DashboardCard.EXPIRING, it)
+                    }
+                    DashboardVisibilityRow("Expired Members", expiredVisible) {
+                        expiredVisible = it; privacyPrefs.setNumberVisible(DashboardCard.EXPIRED, it)
+                    }
+                    DashboardVisibilityRow("Hold Members", holdVisible) {
+                        holdVisible = it; privacyPrefs.setNumberVisible(DashboardCard.HOLD, it)
+                    }
+                    DashboardVisibilityRow("Due Members", dueVisible) {
+                        dueVisible = it; privacyPrefs.setNumberVisible(DashboardCard.DUE, it)
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showCardSettings = false }) { Text("Done", color = GymColors.Accent) }
+            }
+        )
+    }
+}
+
+/** One row of the Feature 3 settings dialog: a card's name plus its own
+ *  independent ON/OFF [Switch] for whether its number is shown. */
+@Composable
+private fun DashboardVisibilityRow(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(label, color = GymColors.Text, fontSize = 13.sp)
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            colors = SwitchDefaults.colors(checkedThumbColor = GymColors.Accent, checkedTrackColor = GymColors.Accent.copy(alpha = 0.5f))
+        )
     }
 }
 
@@ -563,7 +715,7 @@ fun MembersScreen(members: List<Member>, onNavigate: (Screen) -> Unit) {
  * and the exact same profile/renew navigation, instead of a second copy.
  */
 @Composable
-fun MemberRow(m: Member, onNavigate: (Screen) -> Unit, modifier: Modifier = Modifier) {
+fun MemberRow(m: Member, onNavigate: (Screen) -> Unit, modifier: Modifier = Modifier, showDueAmount: Boolean = false) {
     val status = statusOf(m.expiryMillis)
     Row(
         modifier = modifier
@@ -585,6 +737,12 @@ fun MemberRow(m: Member, onNavigate: (Screen) -> Unit, modifier: Modifier = Modi
                 Text(m.name, color = GymColors.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                 Text("${m.phone} \u00B7 ${m.plan}", color = GymColors.TextMuted, fontSize = 12.sp)
                 Text("Expires ${formatDate(m.expiryMillis)}", color = GymColors.TextFaint, fontSize = 11.sp)
+                // Feature 1 (Due Members): only shown on the Due Members list -
+                // other lists (Active/Expiring/Expired/Total) stay exactly as
+                // they were, per "use the existing Member UI wherever possible."
+                if (showDueAmount && m.fee > 0.0) {
+                    Text("Due: ${formatMoney(m.fee)}", color = GymColors.Danger, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
             }
         }
         Column(horizontalAlignment = Alignment.End) {
@@ -1001,6 +1159,11 @@ fun ProfileScreen(member: Member, vm: MembersViewModel, onNavigate: (Screen) -> 
     val days = daysBetweenNow(member.expiryMillis)
     val history = remember(member.historyJson) { member.historyJson.toHistoryList().reversed() }
     val lastRenewedMillis = remember(history) { history.firstOrNull { it.type == "Renewed" }?.dateMillis }
+    // Feature 1 (Due Members / Due Payment): local state for the "Amount
+    // Paid" field, keyed to this member so switching to a different
+    // member's profile always starts with a clean, empty field.
+    var amountPaidText by remember(member.id) { mutableStateOf("") }
+    var paymentError by remember(member.id) { mutableStateOf<String?>(null) }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
@@ -1040,9 +1203,78 @@ fun ProfileScreen(member: Member, vm: MembersViewModel, onNavigate: (Screen) -> 
                     ProfileRow(Icons.Filled.Refresh, "Renewed", formatDate(lastRenewedMillis))
                 }
                 ProfileRow(Icons.Filled.CalendarToday, "Expires", formatDate(member.expiryMillis))
-                ProfileRow(Icons.Filled.CurrencyRupee, "Current Plan", "${member.plan} \u00B7 ${formatMoney(member.fee)}")
+                ProfileRow(Icons.Filled.CurrencyRupee, "Current Plan", member.plan)
+                // Feature 1: Due Amount shown separately from the plan now
+                // that it has its own payment flow below (still the same
+                // underlying Member.fee field, so nothing else changes).
+                ProfileRow(
+                    Icons.Filled.CurrencyRupee, "Due Amount", formatMoney(member.fee),
+                    valueColor = if (member.fee > 0.0) GymColors.Danger else GymColors.Success
+                )
                 ProfileRow(Icons.Filled.Badge, "ID Proof", member.idProof.ifBlank { "Not Provided" })
                 ProfileRow(Icons.Filled.Fingerprint, "Fingerprint", if (member.fingerprintTemplate != null) "Enrolled" else "Not Enrolled", last = true)
+            }
+            // Feature 1: Due Payment - only shown while there's actually
+            // something due, so it naturally disappears the moment the due
+            // amount reaches zero (paid in full), without needing any other
+            // screen change. Never touches membership status, plan, expiry,
+            // or history - purely adjusts the due balance.
+            if (member.fee > 0.0) {
+                Spacer(Modifier.height(14.dp))
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(GymColors.SurfaceCard)
+                        .border(1.dp, GymColors.Border, RoundedCornerShape(16.dp))
+                        .padding(16.dp)
+                ) {
+                    Text("DUE PAYMENT", color = GymColors.TextFaint, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
+                    Spacer(Modifier.height(10.dp))
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Due Amount", color = GymColors.TextMuted, fontSize = 13.sp)
+                        Text(formatMoney(member.fee), color = GymColors.Danger, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    LabeledField("Amount Paid (\u20B9)") {
+                        OutlinedTextField(
+                            value = amountPaidText,
+                            onValueChange = { amountPaidText = it.filter { c -> c.isDigit() }; paymentError = null },
+                            placeholder = { Text("Enter amount being paid now", color = GymColors.TextFaint) },
+                            modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(10.dp), colors = gymFieldColors()
+                        )
+                    }
+                    if (paymentError != null) {
+                        Text(paymentError!!, color = GymColors.Danger, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    val paymentInteractionSource = remember { MutableInteractionSource() }
+                    Button(
+                        onClick = {
+                            val paid = amountPaidText.toDoubleOrNull() ?: 0.0
+                            when {
+                                paid <= 0.0 -> paymentError = "Enter an amount to record a payment."
+                                // Overpayment protection: never allow a negative
+                                // due amount to be stored - block the entry with
+                                // a clear message instead of silently capping it,
+                                // so the owner notices and can correct it.
+                                paid > member.fee -> paymentError = "Amount paid cannot exceed the due amount (${formatMoney(member.fee)})."
+                                else -> {
+                                    val newDue = (member.fee - paid).coerceAtLeast(0.0)
+                                    vm.save(member.copy(fee = newDue, updatedAtMillis = System.currentTimeMillis()))
+                                    amountPaidText = ""
+                                    paymentError = null
+                                }
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = GymColors.Accent),
+                        shape = RoundedCornerShape(12.dp),
+                        interactionSource = paymentInteractionSource,
+                        modifier = Modifier.fillMaxWidth().height(46.dp).gymPressScale(paymentInteractionSource)
+                    ) {
+                        Text("Save Payment", fontWeight = FontWeight.Bold, color = Color.Black, fontSize = 14.sp)
+                    }
+                }
             }
             Spacer(Modifier.height(14.dp))
             Card(
@@ -1177,12 +1409,12 @@ fun ProfileScreen(member: Member, vm: MembersViewModel, onNavigate: (Screen) -> 
 }
 
 @Composable
-fun ProfileRow(icon: ImageVector, label: String, value: String, last: Boolean = false) {
+fun ProfileRow(icon: ImageVector, label: String, value: String, last: Boolean = false, valueColor: Color = GymColors.Text) {
     Row(modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
         Icon(icon, null, tint = GymColors.Accent, modifier = Modifier.size(18.dp))
         Spacer(Modifier.width(12.dp))
         Text(label, color = GymColors.TextFaint, fontSize = 13.sp, modifier = Modifier.weight(1f))
-        Text(value, color = GymColors.Text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        Text(value, color = valueColor, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
     }
     if (!last) Divider(color = GymColors.BorderSubtle, thickness = 1.dp)
 }
@@ -1211,9 +1443,15 @@ fun RenewScreen(member: Member, vm: MembersViewModel, onNavigate: (Screen) -> Un
     var plan by remember { mutableStateOf(member.plan) }
     var fee by remember { mutableStateOf(member.fee.toInt().toString()) }
     val today = LocalDate.now().toMillis()
-    val base = if (member.expiryMillis > today) member.expiryMillis else today
+    // Feature 2: the owner can now pick any date the renewed membership
+    // should start from, instead of it always being forced to today/the
+    // current expiry. Defaults to exactly the same date the old hardcoded
+    // logic used to compute automatically (today, or the current expiry if
+    // it's still in the future) - so a renewal where the owner never
+    // touches this field behaves identically to before.
+    var startDate by remember { mutableStateOf((if (member.expiryMillis > today) member.expiryMillis else today).toLocalDate()) }
     val months = PLAN_MONTHS[plan] ?: 1L
-    val newExpiry = addMonthsMillis(base, months)
+    val newExpiry = addMonthsMillis(startDate.toMillis(), months)
 
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp).padding(top = 20.dp, bottom = 90.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 16.dp)) {
@@ -1230,6 +1468,11 @@ fun RenewScreen(member: Member, vm: MembersViewModel, onNavigate: (Screen) -> Un
             }
         }
         LabeledField("Renewal Plan") { PlanGrid(plan) { plan = it } }
+        // Feature 2: Select Start Date - the new expiry below is always
+        // computed from this date + the selected plan's duration, and this
+        // exact date is what actually gets saved as this renewal cycle's
+        // start (see the Save button below) - not just shown on screen.
+        LabeledField("Select Start Date") { DatePickerField(startDate) { startDate = it } }
         LabeledField("Fee (\u20B9)") {
             OutlinedTextField(
                 value = fee,
@@ -1249,7 +1492,13 @@ fun RenewScreen(member: Member, vm: MembersViewModel, onNavigate: (Screen) -> Un
         Button(
             onClick = {
                 val feeVal = fee.toDoubleOrNull() ?: 0.0
-                val newHistory = member.historyJson.toHistoryList() + HistoryEntry("Renewed", plan, feeVal, System.currentTimeMillis(), newExpiry)
+                // Feature 2: the history entry's date is the selected start
+                // date (not "whenever the Save button happened to be
+                // tapped") - this is what ProfileScreen's "Renewed" row and
+                // the History list both read back, so the chosen date is
+                // genuinely part of the member's saved membership data, not
+                // just a number shown once on this screen.
+                val newHistory = member.historyJson.toHistoryList() + HistoryEntry("Renewed", plan, feeVal, startDate.toMillis(), newExpiry)
                 vm.save(
                     member.copy(
                         plan = plan, fee = feeVal, expiryMillis = newExpiry, historyJson = newHistory.toJson(),

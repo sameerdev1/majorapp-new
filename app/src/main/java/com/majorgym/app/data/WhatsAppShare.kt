@@ -43,7 +43,10 @@ object WhatsAppShare {
         appendLine("Hi ${member.name}, your Major Gym membership has been renewed \u2705")
         appendLine()
         appendLine("Plan: ${member.plan}")
-        appendLine("Fee Paid: ${formatMoney(member.fee)}")
+        // Feature 1: member.fee is the Due Amount (see Member.kt) - showing
+        // it plainly as such here now that it's an adjustable due balance
+        // rather than a fixed "fee paid" figure.
+        appendLine("Due Amount: ${formatMoney(member.fee)}")
         appendLine("New Expiry Date: ${formatDate(member.expiryMillis)}")
         val days = daysBetweenNow(member.expiryMillis)
         if (days >= 0) appendLine("Days Remaining: $days")

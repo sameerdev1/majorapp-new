@@ -70,6 +70,11 @@ class MainActivity : ComponentActivity() {
                 // resolves correctly.
                 val normalMembers = remember(members) { members.filter { it.membershipState != MembershipState.HOLD } }
                 val holdMembers = remember(members) { members.filter { it.membershipState == MembershipState.HOLD } }
+                // Feature 1 (Due Members): a payment-status filter, NOT a
+                // membership-status replacement - a member can be both
+                // Active and Due at once, so this deliberately overlaps with
+                // normalMembers rather than excluding from it.
+                val dueMembers = remember(normalMembers) { normalMembers.filter { it.fee > 0.0 } }
 
                 // Section 24: lightweight reduced-motion support — reads the
                 // OS-level "Remove animations" developer/accessibility setting
@@ -161,7 +166,7 @@ class MainActivity : ComponentActivity() {
                             label = "screenTransition"
                         ) { targetScreen ->
                             when (val s = targetScreen) {
-                                Screen.Dashboard -> DashboardScreen(normalMembers, holdMembers.size) { screen = it }
+                                Screen.Dashboard -> DashboardScreen(normalMembers, holdMembers.size, dueMembers.size) { screen = it }
                                 Screen.Members -> MembersScreen(normalMembers) { screen = it }
                                 Screen.Add -> AddEditMemberScreen(vm, null) { screen = it }
                                 is Screen.Edit -> {
@@ -208,6 +213,10 @@ class MainActivity : ComponentActivity() {
                                 Screen.HoldMembers -> FilteredMembersScreen(
                                     "Hold Members", holdMembers, showSearch = true,
                                     emptyText = "No members on hold."
+                                ) { screen = it }
+                                Screen.DueMembers -> FilteredMembersScreen(
+                                    "Due Members", dueMembers, showSearch = true,
+                                    emptyText = "No members with a due amount.", showDueAmount = true
                                 ) { screen = it }
                                 Screen.Attendance -> AttendanceScreen { screen = it }
                                 Screen.AttendanceLogs -> AttendanceLogsScreen(members, vm) { screen = it }
