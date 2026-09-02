@@ -284,18 +284,19 @@ fun DashboardScreen(members: List<Member>, holdMembersCount: Int = 0, dueMembers
     // Features 3 & 4: privacy is a pure display preference (see
     // DashboardPrivacyPrefs) - it never touches member data, membership
     // status, Sync, Backup, fingerprint, or attendance. Read once per
-    // Dashboard entry and written straight back on every toggle so the
-    // choice survives navigating away and reopening the app.
+    // Dashboard entry so this screen's own rendering (blank privacy view,
+    // per-card number visibility) always reflects the latest saved choice -
+    // the ON/OFF controls themselves now live on the Sync page header (see
+    // SyncScreen), this screen only reads the resulting state.
     val context = LocalContext.current
     val privacyPrefs = remember { DashboardPrivacyPrefs(context) }
-    var masterPrivacyOn by remember { mutableStateOf(privacyPrefs.masterPrivacyOn) }
-    var showCardSettings by remember { mutableStateOf(false) }
-    var totalVisible by remember { mutableStateOf(privacyPrefs.isNumberVisible(DashboardCard.TOTAL)) }
-    var activeVisible by remember { mutableStateOf(privacyPrefs.isNumberVisible(DashboardCard.ACTIVE)) }
-    var expiringVisible by remember { mutableStateOf(privacyPrefs.isNumberVisible(DashboardCard.EXPIRING)) }
-    var expiredVisible by remember { mutableStateOf(privacyPrefs.isNumberVisible(DashboardCard.EXPIRED)) }
-    var holdVisible by remember { mutableStateOf(privacyPrefs.isNumberVisible(DashboardCard.HOLD)) }
-    var dueVisible by remember { mutableStateOf(privacyPrefs.isNumberVisible(DashboardCard.DUE)) }
+    val masterPrivacyOn by remember { mutableStateOf(privacyPrefs.masterPrivacyOn) }
+    val totalVisible by remember { mutableStateOf(privacyPrefs.isNumberVisible(DashboardCard.TOTAL)) }
+    val activeVisible by remember { mutableStateOf(privacyPrefs.isNumberVisible(DashboardCard.ACTIVE)) }
+    val expiringVisible by remember { mutableStateOf(privacyPrefs.isNumberVisible(DashboardCard.EXPIRING)) }
+    val expiredVisible by remember { mutableStateOf(privacyPrefs.isNumberVisible(DashboardCard.EXPIRED)) }
+    val holdVisible by remember { mutableStateOf(privacyPrefs.isNumberVisible(DashboardCard.HOLD)) }
+    val dueVisible by remember { mutableStateOf(privacyPrefs.isNumberVisible(DashboardCard.DUE)) }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
@@ -311,27 +312,11 @@ fun DashboardScreen(members: List<Member>, holdMembersCount: Int = 0, dueMembers
                     Text("MAJOR GYM", color = GymColors.Text, fontWeight = FontWeight.ExtraBold, fontSize = 22.sp, letterSpacing = 0.5.sp)
                     Text("Membership & Biometric Kiosk", color = GymColors.TextMuted, fontSize = 12.sp)
                 }
-                // Feature 3: per-card number visibility settings - hidden
-                // while Master Privacy is on, since it isn't one of the
-                // three things allowed to remain visible in that mode.
-                if (!masterPrivacyOn) {
-                    IconButton(onClick = { showCardSettings = true }) {
-                        Icon(Icons.Filled.Settings, contentDescription = "Dashboard number visibility settings", tint = GymColors.TextMuted)
-                    }
-                }
-                // Feature 4: master Dashboard privacy switch - top-right,
-                // always visible (on or off), purely visual/local, never
-                // touches member data or any other system.
-                IconButton(onClick = {
-                    masterPrivacyOn = !masterPrivacyOn
-                    privacyPrefs.masterPrivacyOn = masterPrivacyOn
-                }) {
-                    Icon(
-                        if (masterPrivacyOn) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
-                        contentDescription = if (masterPrivacyOn) "Privacy mode on - tap to show Dashboard" else "Privacy mode off - tap to hide Dashboard",
-                        tint = if (masterPrivacyOn) GymColors.Accent else GymColors.TextMuted
-                    )
-                }
+                // Relocation: the Dashboard number-visibility (gear) and
+                // Dashboard Privacy (eye) controls that used to sit here have
+                // moved to the Sync page header - same icons, same click
+                // handlers, same DashboardPrivacyPrefs storage, just a
+                // different screen. See SyncScreen.
             }
             Spacer(Modifier.height(16.dp))
         }
@@ -339,9 +324,9 @@ fun DashboardScreen(members: List<Member>, holdMembersCount: Int = 0, dueMembers
             // Feature 4: master privacy is ON - nothing else on the Dashboard
             // renders. No member counts, no Hold/Due rows, no attention list.
             // This is purely visual: nothing is deleted, disabled, or changed -
-            // turning it back off (the eye icon above) instantly restores
-            // everything exactly as it was, including each card's own
-            // individual ON/OFF choice from Feature 3.
+            // turning it back off (the eye icon, now on the Sync page header)
+            // instantly restores everything exactly as it was, including each
+            // card's own individual ON/OFF choice from Feature 3.
             item {
                 Column(
                     modifier = Modifier.fillMaxWidth().padding(top = 60.dp),
@@ -477,49 +462,14 @@ fun DashboardScreen(members: List<Member>, holdMembersCount: Int = 0, dueMembers
         }
         } // end of `else` (masterPrivacyOn == false) started above
     }
-
-    if (showCardSettings) {
-        AlertDialog(
-            onDismissRequest = { showCardSettings = false },
-            containerColor = GymColors.SurfaceCard,
-            title = { Text("Dashboard Number Visibility", color = GymColors.Text, fontWeight = FontWeight.Bold) },
-            text = {
-                Column {
-                    Text(
-                        "Each card's number can be shown or hidden independently. The card itself always stays visible and tappable.",
-                        color = GymColors.TextFaint, fontSize = 12.sp, modifier = Modifier.padding(bottom = 8.dp)
-                    )
-                    DashboardVisibilityRow("Total Members", totalVisible) {
-                        totalVisible = it; privacyPrefs.setNumberVisible(DashboardCard.TOTAL, it)
-                    }
-                    DashboardVisibilityRow("Active Members", activeVisible) {
-                        activeVisible = it; privacyPrefs.setNumberVisible(DashboardCard.ACTIVE, it)
-                    }
-                    DashboardVisibilityRow("Expiring Soon", expiringVisible) {
-                        expiringVisible = it; privacyPrefs.setNumberVisible(DashboardCard.EXPIRING, it)
-                    }
-                    DashboardVisibilityRow("Expired Members", expiredVisible) {
-                        expiredVisible = it; privacyPrefs.setNumberVisible(DashboardCard.EXPIRED, it)
-                    }
-                    DashboardVisibilityRow("Hold Members", holdVisible) {
-                        holdVisible = it; privacyPrefs.setNumberVisible(DashboardCard.HOLD, it)
-                    }
-                    DashboardVisibilityRow("Due Members", dueVisible) {
-                        dueVisible = it; privacyPrefs.setNumberVisible(DashboardCard.DUE, it)
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { showCardSettings = false }) { Text("Done", color = GymColors.Accent) }
-            }
-        )
-    }
 }
 
 /** One row of the Feature 3 settings dialog: a card's name plus its own
- *  independent ON/OFF [Switch] for whether its number is shown. */
+ *  independent ON/OFF [Switch] for whether its number is shown. Not private
+ *  so SyncScreen (which now hosts the settings dialog that uses this, after
+ *  the header-controls relocation) can reuse it as-is instead of duplicating it. */
 @Composable
-private fun DashboardVisibilityRow(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+fun DashboardVisibilityRow(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,

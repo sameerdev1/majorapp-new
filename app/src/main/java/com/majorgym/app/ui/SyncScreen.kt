@@ -12,17 +12,23 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.majorgym.app.MembersViewModel
+import com.majorgym.app.data.DashboardCard
+import com.majorgym.app.data.DashboardPrivacyPrefs
 import com.majorgym.app.data.SyncOutcome
 import com.majorgym.app.data.formatDate
 
@@ -33,6 +39,23 @@ fun SyncScreen(vm: MembersViewModel) {
     var status by remember { mutableStateOf<String?>(null) }
     var syncing by remember { mutableStateOf(false) }
     var paired by remember { mutableStateOf(vm.pairedDevices()) }
+
+    // Relocation: the Dashboard Number Visibility (gear) and Dashboard
+    // Privacy (eye) controls used to live in the Dashboard header - they now
+    // live here instead. Exact same DashboardPrivacyPrefs storage, click
+    // handlers, and settings dialog as before - only their screen changed,
+    // so every existing choice is preserved and Dashboard's own behavior
+    // (blank privacy view, per-card number visibility) is unaffected.
+    val context = LocalContext.current
+    val privacyPrefs = remember { DashboardPrivacyPrefs(context) }
+    var masterPrivacyOn by remember { mutableStateOf(privacyPrefs.masterPrivacyOn) }
+    var showCardSettings by remember { mutableStateOf(false) }
+    var totalVisible by remember { mutableStateOf(privacyPrefs.isNumberVisible(DashboardCard.TOTAL)) }
+    var activeVisible by remember { mutableStateOf(privacyPrefs.isNumberVisible(DashboardCard.ACTIVE)) }
+    var expiringVisible by remember { mutableStateOf(privacyPrefs.isNumberVisible(DashboardCard.EXPIRING)) }
+    var expiredVisible by remember { mutableStateOf(privacyPrefs.isNumberVisible(DashboardCard.EXPIRED)) }
+    var holdVisible by remember { mutableStateOf(privacyPrefs.isNumberVisible(DashboardCard.HOLD)) }
+    var dueVisible by remember { mutableStateOf(privacyPrefs.isNumberVisible(DashboardCard.DUE)) }
 
     // Fix #3: the screen must stay usable once the keyboard opens for the
     // device-name/Sync Code fields - verticalScroll lets the whole page
@@ -48,7 +71,33 @@ fun SyncScreen(vm: MembersViewModel) {
             .padding(top = 20.dp, bottom = 90.dp)
             .imePadding()
     ) {
-        Text("DEVICE SYNC", color = GymColors.Text, fontWeight = FontWeight.ExtraBold, fontSize = 22.sp, letterSpacing = 0.5.sp)
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            Text(
+                "DEVICE SYNC", color = GymColors.Text, fontWeight = FontWeight.ExtraBold, fontSize = 22.sp, letterSpacing = 0.5.sp,
+                modifier = Modifier.weight(1f)
+            )
+            // Relocated from the Dashboard header (same icon, click handler,
+            // and DashboardPrivacyPrefs storage) - opens the same per-card
+            // number-visibility settings dialog as before.
+            if (!masterPrivacyOn) {
+                IconButton(onClick = { showCardSettings = true }) {
+                    Icon(Icons.Filled.Settings, contentDescription = "Dashboard number visibility settings", tint = GymColors.TextMuted)
+                }
+            }
+            // Relocated from the Dashboard header (same icon, click handler,
+            // and DashboardPrivacyPrefs storage) - still controls the exact
+            // same Dashboard Privacy Mode.
+            IconButton(onClick = {
+                masterPrivacyOn = !masterPrivacyOn
+                privacyPrefs.masterPrivacyOn = masterPrivacyOn
+            }) {
+                Icon(
+                    if (masterPrivacyOn) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                    contentDescription = if (masterPrivacyOn) "Privacy mode on - tap to show Dashboard" else "Privacy mode off - tap to hide Dashboard",
+                    tint = if (masterPrivacyOn) GymColors.Accent else GymColors.TextMuted
+                )
+            }
+        }
         Spacer(Modifier.height(20.dp))
 
         Card(
@@ -187,6 +236,46 @@ fun SyncScreen(vm: MembersViewModel) {
                 }
             }
         }
+    }
+
+    // Relocated from the Dashboard header - same dialog, same
+    // DashboardVisibilityRow rows, same DashboardPrivacyPrefs writes as
+    // before, just opened from here now.
+    if (showCardSettings) {
+        AlertDialog(
+            onDismissRequest = { showCardSettings = false },
+            containerColor = GymColors.SurfaceCard,
+            title = { Text("Dashboard Number Visibility", color = GymColors.Text, fontWeight = FontWeight.Bold) },
+            text = {
+                Column {
+                    Text(
+                        "Each card's number can be shown or hidden independently. The card itself always stays visible and tappable.",
+                        color = GymColors.TextFaint, fontSize = 12.sp, modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                    DashboardVisibilityRow("Total Members", totalVisible) {
+                        totalVisible = it; privacyPrefs.setNumberVisible(DashboardCard.TOTAL, it)
+                    }
+                    DashboardVisibilityRow("Active Members", activeVisible) {
+                        activeVisible = it; privacyPrefs.setNumberVisible(DashboardCard.ACTIVE, it)
+                    }
+                    DashboardVisibilityRow("Expiring Soon", expiringVisible) {
+                        expiringVisible = it; privacyPrefs.setNumberVisible(DashboardCard.EXPIRING, it)
+                    }
+                    DashboardVisibilityRow("Expired Members", expiredVisible) {
+                        expiredVisible = it; privacyPrefs.setNumberVisible(DashboardCard.EXPIRED, it)
+                    }
+                    DashboardVisibilityRow("Hold Members", holdVisible) {
+                        holdVisible = it; privacyPrefs.setNumberVisible(DashboardCard.HOLD, it)
+                    }
+                    DashboardVisibilityRow("Due Members", dueVisible) {
+                        dueVisible = it; privacyPrefs.setNumberVisible(DashboardCard.DUE, it)
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showCardSettings = false }) { Text("Done", color = GymColors.Accent) }
+            }
+        )
     }
 }
 
