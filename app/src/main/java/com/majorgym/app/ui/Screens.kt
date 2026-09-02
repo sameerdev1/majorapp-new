@@ -1,10 +1,7 @@
 package com.majorgym.app.ui
 
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
+
 import android.net.Uri
-import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.FileProvider
@@ -273,7 +270,7 @@ fun DatePickerField(date: LocalDate, onChange: (LocalDate) -> Unit) {
 
 @Composable
 @OptIn(ExperimentalFoundationApi::class)
-fun DashboardScreen(members: List<Member>, onNavigate: (Screen) -> Unit) {
+fun DashboardScreen(members: List<Member>, holdMembersCount: Int = 0, onNavigate: (Screen) -> Unit) {
     val active = members.count { statusOf(it.expiryMillis) == MemberStatus.ACTIVE }
     val expiring = members.count { statusOf(it.expiryMillis) == MemberStatus.EXPIRING }
     val expired = members.count { statusOf(it.expiryMillis) == MemberStatus.EXPIRED }
@@ -303,7 +300,10 @@ fun DashboardScreen(members: List<Member>, onNavigate: (Screen) -> Unit) {
         }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(bottom = 10.dp)) {
-                StatCard("Total Members", members.size.toString(), Modifier.weight(1f)) { onNavigate(Screen.TotalMembers) }
+                // Fix #1: the Total Members card keeps its button/tap behavior
+                // (still opens the full member list via Screen.TotalMembers) -
+                // it just no longer displays a numeric count anywhere on the card.
+                StatCard("Total Members", null, Modifier.weight(1f)) { onNavigate(Screen.TotalMembers) }
                 StatCard("Active", active.toString(), Modifier.weight(1f)) { onNavigate(Screen.ActiveMembers) }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(bottom = 14.dp)) {
@@ -312,33 +312,37 @@ fun DashboardScreen(members: List<Member>, onNavigate: (Screen) -> Unit) {
             }
         }
         item {
-            Text("ATTENDANCE", color = GymColors.TextFaint, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp, modifier = Modifier.padding(bottom = 8.dp))
+            // Hold Members (fix #5): a separate entry point for members
+            // expired more than 2 months with no renewal - preserved in full,
+            // just hidden from the normal Members list/counts above.
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(16.dp))
                     .background(GymColors.SurfaceCard)
                     .border(1.dp, GymColors.Border, RoundedCornerShape(16.dp))
-                    .clickable { onNavigate(Screen.Attendance) }
+                    .clickable { onNavigate(Screen.HoldMembers) }
                     .padding(16.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Box(
                     modifier = Modifier
                         .clip(RoundedCornerShape(12.dp))
-                        .background(GymColors.Accent.copy(alpha = 0.15f))
+                        .background(GymColors.Warning.copy(alpha = 0.15f))
                         .padding(10.dp)
                 ) {
-                    Icon(Icons.Filled.QrCodeScanner, contentDescription = null, tint = GymColors.Accent, modifier = Modifier.size(22.dp))
+                    Icon(Icons.Filled.Pause, contentDescription = null, tint = GymColors.Warning, modifier = Modifier.size(22.dp))
                 }
                 Spacer(Modifier.width(14.dp))
                 Column(Modifier.weight(1f)) {
-                    Text("Open Attendance Scanner", color = GymColors.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    Text("Hold Members", color = GymColors.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                     Text(
-                        "Scan member QR codes and manage check-ins",
+                        "Expired 2+ months, not yet renewed",
                         color = GymColors.TextFaint, fontSize = 12.sp, modifier = Modifier.padding(top = 2.dp)
                     )
                 }
+                Text(holdMembersCount.toString(), color = GymColors.Warning, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.width(8.dp))
                 Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = GymColors.TextFaint)
             }
             Spacer(Modifier.height(14.dp))
@@ -476,12 +480,12 @@ fun GymAttendanceQrCard() {
 }
 
 @Composable
-fun StatCard(label: String, value: String, modifier: Modifier = Modifier, onClick: (() -> Unit)? = null) {
+fun StatCard(label: String, value: String?, modifier: Modifier = Modifier, onClick: (() -> Unit)? = null) {
     // Section 7: count up rather than instantly replacing the digits, but
     // only animate when the underlying number actually changed — a
     // non-numeric value (shouldn't happen here, but defensively) just
     // displays as-is instead of animating from 0.
-    val intValue = value.toIntOrNull()
+    val intValue = value?.toIntOrNull()
     val displayText = if (intValue != null) {
         val animated by animateIntAsState(
             targetValue = intValue,
@@ -509,8 +513,13 @@ fun StatCard(label: String, value: String, modifier: Modifier = Modifier, onClic
             .padding(16.dp)
     ) {
         Text(label.uppercase(), color = GymColors.TextFaint, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
-        Spacer(Modifier.height(8.dp))
-        Text(displayText, color = GymColors.Accent, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
+        // Fix #1 (Total Members): a null value means "don't show a count at
+        // all" - the card still renders (and is still tappable) with just
+        // its label, instead of a number row.
+        if (displayText != null) {
+            Spacer(Modifier.height(8.dp))
+            Text(displayText, color = GymColors.Accent, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
+        }
     }
 }
 
@@ -662,7 +671,8 @@ fun AddEditMemberScreen(vm: MembersViewModel, existing: Member?, onNavigate: (Sc
 
     val months = PLAN_MONTHS[plan] ?: 1L
     val expiryMillis = addMonthsMillis(joined.toMillis(), months)
-    val valid = name.trim().length >= 3 && phone.length >= 10 && fee.toDoubleOrNull() != null && !phoneTaken
+    // Fix #2: Due Amount is optional - no longer part of the validity gate.
+    val valid = name.trim().length >= 3 && phone.length >= 10 && !phoneTaken
 
     Column(
         modifier = Modifier
@@ -797,40 +807,21 @@ fun AddEditMemberScreen(vm: MembersViewModel, existing: Member?, onNavigate: (Sc
             }
         }
 
-        if (existing == null) {
-            LabeledField("Passkey") {
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                    OutlinedTextField(
-                        value = passkey, onValueChange = {}, readOnly = true,
-                        modifier = Modifier.weight(1f), singleLine = true, shape = RoundedCornerShape(10.dp), colors = gymFieldColors()
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Icon(
-                        Icons.Filled.Refresh, contentDescription = "Regenerate", tint = GymColors.Accent,
-                        modifier = Modifier.clickable { passkey = PasskeyUtils.generate() }
-                    )
-                    Spacer(Modifier.width(12.dp))
-                    Icon(
-                        Icons.Filled.ContentCopy, contentDescription = "Copy", tint = GymColors.Accent,
-                        modifier = Modifier.clickable {
-                            val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                            cm.setPrimaryClip(ClipData.newPlainText("Passkey", passkey))
-                            Toast.makeText(context, "Passkey copied", Toast.LENGTH_SHORT).show()
-                        }
-                    )
-                }
-                Text(
-                    "Shown only once. It will be sent to the member via WhatsApp after saving.",
-                    color = GymColors.TextFaint, fontSize = 10.sp, modifier = Modifier.padding(top = 4.dp)
-                )
-            }
-        }
+        // Fix #3: Passkey generation/hashing/storage is untouched (see
+        // `passkey` above and `passwordHash = PasskeyUtils.hash(passkey)`
+        // below) - only this owner-facing UI field is removed. The passkey
+        // itself still exists internally and is still sent to the member via
+        // WhatsApp after saving (see RegistrationSuccessScreen/WhatsAppShare),
+        // it's simply never shown on any screen anymore.
         LabeledField("Joining Date") { DatePickerField(joined) { joined = it } }
         LabeledField("Membership Plan") { PlanGrid(plan) { plan = it } }
-        LabeledField("Fee (\u20B9)") {
+        // Fix #2: renamed from "Fee" to "Due Amount" and made optional - the
+        // owner must be able to add a member without entering one at all.
+        LabeledField("Due Amount (\u20B9) (Optional)") {
             OutlinedTextField(
                 value = fee,
                 onValueChange = { fee = it.filter { c -> c.isDigit() } },
+                placeholder = { Text("Enter Due Amount (Optional)", color = GymColors.TextFaint) },
                 modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(10.dp), colors = gymFieldColors()
             )
         }
@@ -847,7 +838,9 @@ fun AddEditMemberScreen(vm: MembersViewModel, existing: Member?, onNavigate: (Sc
         val saveInteractionSource = remember { MutableInteractionSource() }
         Button(
             onClick = {
-                val feeVal = fee.toDouble()
+                // Fix #2: Due Amount is optional - blank/invalid input just
+                // means "no due amount entered", not a save failure.
+                val feeVal = fee.toDoubleOrNull() ?: 0.0
                 val history = if (existing == null)
                     listOf(HistoryEntry("Joined", plan, feeVal, joined.toMillis(), expiryMillis))
                 else existing.historyJson.toHistoryList()
@@ -871,7 +864,11 @@ fun AddEditMemberScreen(vm: MembersViewModel, existing: Member?, onNavigate: (Sc
                     // edited. Carry the existing template forward untouched; it is only
                     // ever changed via the dedicated enroll/replace/remove fingerprint
                     // actions (see MembersViewModel.saveFingerprintTemplate / removeFingerprintTemplate).
-                    fingerprintTemplate = existing?.fingerprintTemplate
+                    fingerprintTemplate = existing?.fingerprintTemplate,
+                    // A Hold member being edited (not renewed) stays on Hold -
+                    // only the explicit Renew flow (see RenewScreen) or the
+                    // daily lifecycle worker moves them back to normal.
+                    membershipState = existing?.membershipState ?: MembershipState.ACTIVE
                 )
                 vm.save(member)
                 if (existing == null) onNavigate(Screen.Registered(id, passkey)) else onNavigate(Screen.Profile(id))
@@ -1258,7 +1255,14 @@ fun RenewScreen(member: Member, vm: MembersViewModel, onNavigate: (Screen) -> Un
                         plan = plan, fee = feeVal, expiryMillis = newExpiry, historyJson = newHistory.toJson(),
                         updatedAtMillis = System.currentTimeMillis(),
                         qrToken = QrUtils.freshToken(),
-                        qrTokenExpiryMillis = System.currentTimeMillis() + QrUtils.TOKEN_VALIDITY_MILLIS
+                        qrTokenExpiryMillis = System.currentTimeMillis() + QrUtils.TOKEN_VALIDITY_MILLIS,
+                        // Fix #6: a Hold member renewing returns straight to
+                        // the normal Members list - same Member ID, no
+                        // duplication, fingerprint becomes searchable again
+                        // immediately (see FingerprintKioskService's cache
+                        // filter, which re-includes them the instant this
+                        // becomes ACTIVE).
+                        membershipState = MembershipState.ACTIVE
                     )
                 )
                 onNavigate(Screen.Renewed(member.id, justRenewed = true))
@@ -1454,6 +1458,39 @@ fun BackupScreen(vm: MembersViewModel, onNavigate: (Screen) -> Unit) {
     ) {
         Text("BACKUP & RESTORE", color = GymColors.Text, fontWeight = FontWeight.ExtraBold, fontSize = 22.sp, letterSpacing = 0.5.sp)
         Spacer(Modifier.height(20.dp))
+
+        // Fix #8: Attendance Scanner access moved here from the Dashboard -
+        // same GymAttendanceQrCard-backed AttendanceScreen as before, nothing
+        // about the scanner itself changed, only where it's reached from.
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(16.dp))
+                .background(GymColors.SurfaceCard)
+                .border(1.dp, GymColors.Border, RoundedCornerShape(16.dp))
+                .clickable { onNavigate(Screen.Attendance) }
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(GymColors.Accent.copy(alpha = 0.15f))
+                    .padding(10.dp)
+            ) {
+                Icon(Icons.Filled.QrCodeScanner, contentDescription = null, tint = GymColors.Accent, modifier = Modifier.size(22.dp))
+            }
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f)) {
+                Text("Open Attendance Scanner", color = GymColors.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                Text(
+                    "Scan member QR codes and manage check-ins",
+                    color = GymColors.TextFaint, fontSize = 12.sp, modifier = Modifier.padding(top = 2.dp)
+                )
+            }
+            Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = GymColors.TextFaint)
+        }
+        Spacer(Modifier.height(14.dp))
 
         Card(
             colors = CardDefaults.cardColors(containerColor = GymColors.SurfaceCard),

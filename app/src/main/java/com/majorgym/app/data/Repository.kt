@@ -339,11 +339,12 @@ class Repository(private val context: Context) {
      * database row itself (a BLOB column, not a separate file), so deleting
      * the row already takes care of that.
      *
-     * Used by both the manual Delete action and [MembershipCleanupWorker] —
-     * previously, deleting a member only removed the database row and silently
-     * left orphaned photo files behind forever; this replaces that everywhere.
-     * Being the single shared path for both deletion routes is exactly what
-     * makes it the right place to also add attendance cleanup once, for both.
+     * Used by the manual Delete action (Profile -> Delete) — previously,
+     * deleting a member only removed the database row and silently left
+     * orphaned photo files behind forever; this fixes that. [MembershipHoldWorker]
+     * no longer deletes members at all (Hold Members feature): a long-expired,
+     * never-renewed member is moved to [MembershipState.HOLD] via the normal
+     * [save] path instead, with nothing removed.
      */
     suspend fun deleteWithFiles(member: Member) = changeLogMutex.withLock {
         deletePhoto(member.id)

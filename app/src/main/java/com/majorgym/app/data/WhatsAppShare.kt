@@ -22,12 +22,12 @@ object WhatsAppShare {
         appendLine("Start: ${formatDate(member.joinedMillis)}")
         appendLine("Expiry: ${formatDate(member.expiryMillis)}")
         appendLine("Phone: ${member.phone}")
-        // Not part of the fixed structure below, but kept from the existing
-        // receipt (Part 4: "preserve existing receipt behavior wherever
-        // possible") - the client app needs this passkey to log the member
-        // in, so dropping it would break the very Client App download this
-        // section is promoting.
-        appendLine("Passkey: $passkey")
+        // Fix #3: the Passkey must no longer be shown anywhere owner-facing,
+        // including this WhatsApp receipt - it's kept out of the message
+        // text entirely now. Passkey generation/hashing/storage themselves
+        // are untouched (see PasskeyUtils/Member.passwordHash); [passkey] is
+        // still accepted here only so this signature doesn't need to change
+        // everywhere it's called from.
         appendLine()
         appendLine("\uD83D\uDCF1 Client App")
         appendLine("Download the Major Gym Client App:")

@@ -7,7 +7,7 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
-@Database(entities = [Member::class, AttendanceRecord::class, SyncChangeLogEntry::class], version = 11, exportSchema = false)
+@Database(entities = [Member::class, AttendanceRecord::class, SyncChangeLogEntry::class], version = 12, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun memberDao(): MemberDao
     abstract fun attendanceDao(): AttendanceDao
@@ -58,9 +58,12 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
-        /** Add-on: auto-delete safeguard for long-expired accounts (Feature 4). NULL
-         *  means "not currently pending deletion" — see Member.pendingDeletionMillis
-         *  and MembershipCleanupWorker. */
+        /** Add-on: originally an auto-delete safeguard for long-expired accounts
+         *  (Feature 4) - that automatic deletion has since been removed
+         *  entirely and replaced by the Hold Members feature (see
+         *  MIGRATION_11_12/Member.membershipState/MembershipHoldWorker); this
+         *  column is kept only for backward-compatible reads of old rows/backups,
+         *  see Member.pendingDeletionMillis. */
         private val MIGRATION_6_7 = object : Migration(6, 7) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE members ADD COLUMN pendingDeletionMillis INTEGER")
@@ -163,6 +166,16 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** Hold Members feature: a member expired 2+ months with no renewal is
+         *  moved to HOLD (see [MembershipState]/[MembershipHoldWorker]) instead
+         *  of being deleted - every existing row defaults to 'ACTIVE' so no
+         *  existing member is ever affected by this migration alone. */
+        private val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE members ADD COLUMN membershipState TEXT NOT NULL DEFAULT 'ACTIVE'")
+            }
+        }
+
         fun get(context: Context): AppDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -171,7 +184,8 @@ abstract class AppDatabase : RoomDatabase() {
                     "major_gym.db"
                 ).addMigrations(
                     MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6,
-                    MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11
+                    MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11,
+                    MIGRATION_11_12
                 ).build().also { INSTANCE = it }
             }
     }

@@ -110,6 +110,8 @@ object BackupManager {
                 o.put("fingerprintTemplateBase64", Base64.encodeToString(m.fingerprintTemplate, Base64.NO_WRAP))
             }
             if (m.pendingDeletionMillis != null) o.put("pendingDeletionMillis", m.pendingDeletionMillis)
+            // Hold Members feature: ACTIVE or HOLD - see Member.membershipState.
+            o.put("membershipState", m.membershipState)
             arr.put(o)
         }
 
@@ -263,7 +265,8 @@ object BackupManager {
                         qrToken = o.optString("qrToken", ""),
                         qrTokenExpiryMillis = o.optLong("qrTokenExpiryMillis", 0L),
                         fingerprintTemplate = fingerprintTemplate,
-                        pendingDeletionMillis = if (o.has("pendingDeletionMillis")) o.optLong("pendingDeletionMillis") else null
+                        pendingDeletionMillis = if (o.has("pendingDeletionMillis")) o.optLong("pendingDeletionMillis") else null,
+                        membershipState = o.optString("membershipState", MembershipState.ACTIVE)
                     )
                 )
             } catch (e: Exception) {

@@ -33,6 +33,13 @@ sealed class Screen {
     data object ActiveMembers : Screen()
     data object ExpiringMembers : Screen()
     data object ExpiredMembers : Screen()
+    /** Members expired more than 2 months with no renewal (see
+     *  [com.majorgym.app.data.MembershipState.HOLD]/MembershipHoldWorker).
+     *  Excluded from the normal Members list/counts and from the fingerprint
+     *  attendance search, but fully preserved and reachable/searchable/
+     *  renewable here - renewing moves a member straight back to the normal
+     *  Members list using the same Member ID (no duplication). */
+    data object HoldMembers : Screen()
     /** The gym's fixed check-in QR (display/share only — there is no in-app
      *  camera scanner). Reached via the Dashboard's "Open Attendance
      *  Scanner" button instead of being permanently shown on the Dashboard.

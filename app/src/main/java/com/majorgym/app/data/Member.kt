@@ -4,6 +4,19 @@ import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
+/** Values for [Member.membershipState] (Hold Members feature).
+ *  ACTIVE: shown in the normal Members list, fingerprint search, dashboard counts.
+ *  HOLD: expired 2+ months with no renewal - preserved in full, but hidden from
+ *  the normal Members list/counts and excluded from the fingerprint attendance
+ *  search (see FingerprintKioskService). Renewing a Hold member (RenewScreen)
+ *  moves them back to ACTIVE immediately using the same Member ID - no
+ *  duplication, nothing deleted. See MembershipHoldWorker for the automatic
+ *  ACTIVE -> HOLD transition. */
+object MembershipState {
+    const val ACTIVE = "ACTIVE"
+    const val HOLD = "HOLD"
+}
+
 @Entity(
     tableName = "members",
     indices = [Index(value = ["phone"], unique = true)]
@@ -26,14 +39,12 @@ data class Member(
     val passwordHash: String = "",
     val createdAtMillis: Long = System.currentTimeMillis(),
     val lastAttendanceMillis: Long? = null,
-    /** Members expired 180+ days used to be described here as "archived, not
-     *  deleted" but that was never actually implemented anywhere — this field
-     *  is repurposed as the auto-delete safeguard instead (see
-     *  MembershipCleanupWorker): true only in the brief window between a
-     *  member first becoming eligible for deletion and the cleanup job
-     *  confirming it a second time ~a day later before actually deleting them.
-     *  Lets the UI (if ever needed) flag "pending removal" without hiding the
-     *  member outright. */
+    /** Unused/vestigial: previously part of an auto-delete safeguard that no
+     *  longer exists (see [pendingDeletionMillis] and the Hold Members
+     *  feature docs on [membershipState]/MembershipHoldWorker, which replaced
+     *  automatic deletion entirely). Kept only so existing rows/backups with
+     *  a stored value for it still read in without a schema change; nothing
+     *  in the app sets or reads it anymore. */
     val archived: Boolean = false,
     /** Unique, single-use-window token behind the member's QR (add-on: time-limited
      *  membership QR). Regenerated on registration, on every renewal, and whenever the
@@ -56,15 +67,19 @@ data class Member(
      *  the raw scan image is never stored. Used for 1:1 verification at
      *  check-in against the member the front-desk staff has already selected. */
     val fingerprintTemplate: ByteArray? = null,
-    /**
-     * Epoch millis of when this member first became eligible for automatic
-     * deletion (expired 4+ months, never renewed since — see
-     * MembershipCleanupWorker). Null means "not currently pending." Renewing
-     * clears this automatically, since renewal moves [expiryMillis] into the
-     * future and the member stops being eligible. This — combined with
-     * [archived] — is the safeguard against a one-off clock glitch or sync
-     * hiccup causing an instant, irreversible deletion: a member has to stay
-     * eligible across two separate daily checks before they're actually removed.
-     */
-    val pendingDeletionMillis: Long? = null
+    /** Unused/vestigial: previously tracked eligibility for an automatic
+     *  deletion safeguard that has been removed entirely — a member is never
+     *  deleted just for being long-expired anymore (see [membershipState]/
+     *  MembershipHoldWorker, which moves them to HOLD instead, preserving
+     *  every field). Kept only so existing rows/backups with a stored value
+     *  still read in without a schema change; nothing in the app sets or
+     *  reads it anymore. */
+    val pendingDeletionMillis: Long? = null,
+    /** ACTIVE or HOLD (see [MembershipState]) - Hold Members feature: a member
+     *  whose membership has been expired for more than 2 months with no
+     *  renewal is moved to HOLD (see MembershipHoldWorker) instead of being
+     *  deleted or losing any data. Defaults to ACTIVE so every existing
+     *  member/backup/sync record from before this feature reads in exactly
+     *  as before. */
+    val membershipState: String = MembershipState.ACTIVE
 )

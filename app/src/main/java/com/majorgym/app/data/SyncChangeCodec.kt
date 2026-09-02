@@ -35,6 +35,7 @@ object SyncChangeCodec {
     private const val K_QR_EXPIRY = "qrTokenExpiryMillis"
     private const val K_ID_PROOF = "idProof"
     private const val K_PENDING_DELETION = "pendingDeletionMillis"
+    private const val K_MEMBERSHIP_STATE = "membershipState"
     private const val K_PHOTO = "photoBase64"
     private const val K_ID_PHOTO = "idProofPhotoBase64"
     private const val K_FINGERPRINT = "fingerprintTemplateBase64"
@@ -43,7 +44,7 @@ object SyncChangeCodec {
     private val ALL_KEYS = setOf(
         K_NAME, K_PHONE, K_PLAN, K_FEE, K_JOINED, K_EXPIRY, K_HISTORY, K_PASSWORD_HASH,
         K_CREATED, K_LAST_ATTENDANCE, K_ARCHIVED, K_QR_TOKEN, K_QR_EXPIRY, K_ID_PROOF,
-        K_PENDING_DELETION, K_PHOTO, K_ID_PHOTO, K_FINGERPRINT
+        K_PENDING_DELETION, K_MEMBERSHIP_STATE, K_PHOTO, K_ID_PHOTO, K_FINGERPRINT
     )
 
     /** Encodes [m] into a change-log field payload. Pass [keys] = null for a
@@ -70,6 +71,7 @@ object SyncChangeCodec {
         if (K_QR_EXPIRY in want) o.put(K_QR_EXPIRY, m.qrTokenExpiryMillis)
         if (K_ID_PROOF in want) o.put(K_ID_PROOF, m.idProof)
         if (K_PENDING_DELETION in want && m.pendingDeletionMillis != null) o.put(K_PENDING_DELETION, m.pendingDeletionMillis)
+        if (K_MEMBERSHIP_STATE in want) o.put(K_MEMBERSHIP_STATE, m.membershipState)
         if (K_PHOTO in want) o.put(K_PHOTO, readFileBase64(m.photoPath))
         if (K_ID_PHOTO in want) o.put(K_ID_PHOTO, readFileBase64(m.idProofPhotoPath.ifBlank { null }))
         if (K_FINGERPRINT in want) o.put(K_FINGERPRINT, m.fingerprintTemplate?.let { Base64.encodeToString(it, Base64.NO_WRAP) } ?: "")
@@ -102,6 +104,7 @@ object SyncChangeCodec {
         if (existing.qrTokenExpiryMillis != updated.qrTokenExpiryMillis) keys += K_QR_EXPIRY
         if (existing.idProof != updated.idProof) keys += K_ID_PROOF
         if (existing.pendingDeletionMillis != updated.pendingDeletionMillis) keys += K_PENDING_DELETION
+        if (existing.membershipState != updated.membershipState) keys += K_MEMBERSHIP_STATE
         val fpChanged = when {
             existing.fingerprintTemplate == null && updated.fingerprintTemplate == null -> false
             existing.fingerprintTemplate == null || updated.fingerprintTemplate == null -> true
@@ -165,7 +168,8 @@ object SyncChangeCodec {
             idProof = fields.optString(K_ID_PROOF, ""),
             idProofPhotoPath = idProofPhotoPath,
             fingerprintTemplate = fingerprintTemplate,
-            pendingDeletionMillis = if (fields.has(K_PENDING_DELETION)) fields.optLong(K_PENDING_DELETION) else null
+            pendingDeletionMillis = if (fields.has(K_PENDING_DELETION)) fields.optLong(K_PENDING_DELETION) else null,
+            membershipState = fields.optString(K_MEMBERSHIP_STATE, MembershipState.ACTIVE)
         )
     }
 
