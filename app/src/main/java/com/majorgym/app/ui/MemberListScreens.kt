@@ -62,7 +62,7 @@ fun FilteredMembersScreen(
                 modifier = Modifier.clickable { onNavigate(Screen.Dashboard) }
             )
             Spacer(Modifier.width(12.dp))
-            Text(title.uppercase(), color = GymColors.Text, fontWeight = FontWeight.ExtraBold, fontSize = 22.sp, letterSpacing = 0.5.sp)
+            GymScreenTitle(title)
         }
 
         if (showSearch) {

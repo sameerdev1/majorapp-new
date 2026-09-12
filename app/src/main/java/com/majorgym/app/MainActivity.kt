@@ -19,6 +19,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -29,7 +31,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.core.content.ContextCompat
@@ -132,17 +136,33 @@ class MainActivity : ComponentActivity() {
                     members = members,
                     paused = kioskPaused
                 )
-                // Surface is transparent so the background image behind it shows through
-                // on every screen; a dark scrim keeps text/cards readable over the photo.
+                // Section 7 (Biometric Core OS visual language): the app's
+                // backdrop is now a deep-navy atmosphere with two soft,
+                // restrained glow fields (cyan + violet) instead of a
+                // photographic background + dark scrim — purely a visual
+                // change, nothing here affects any screen's content or logic.
                 Surface(modifier = Modifier.fillMaxSize(), color = Color.Transparent) {
-                    Box(Modifier.fillMaxSize()) {
-                        Image(
-                            painter = painterResource(R.drawable.bg_gym),
-                            contentDescription = null,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize()
+                    Box(Modifier.fillMaxSize().background(GymColors.Bg)) {
+                        Box(
+                            modifier = Modifier
+                                .size(420.dp)
+                                .align(Alignment.TopEnd)
+                                .offset(x = 140.dp, y = (-120).dp)
+                                .background(
+                                    Brush.radialGradient(colors = listOf(Color(0x3300F0FF), Color(0x0000F0FF))),
+                                    shape = androidx.compose.foundation.shape.CircleShape
+                                )
                         )
-                        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.55f)))
+                        Box(
+                            modifier = Modifier
+                                .size(460.dp)
+                                .align(Alignment.BottomStart)
+                                .offset(x = (-150).dp, y = 140.dp)
+                                .background(
+                                    Brush.radialGradient(colors = listOf(Color(0x2E8B5CF6), Color(0x008B5CF6))),
+                                    shape = androidx.compose.foundation.shape.CircleShape
+                                )
+                        )
 
                         // Priority 1: purely visual fade + slight horizontal-movement
                         // transition between screens. This is layered on top of the

@@ -22,6 +22,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -72,10 +73,7 @@ fun SyncScreen(vm: MembersViewModel) {
             .imePadding()
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            Text(
-                "DEVICE SYNC", color = GymColors.Text, fontWeight = FontWeight.ExtraBold, fontSize = 22.sp, letterSpacing = 0.5.sp,
-                modifier = Modifier.weight(1f)
-            )
+            GymScreenTitle("DEVICE SYNC", modifier = Modifier.weight(1f))
             // Relocated from the Dashboard header (same icon, click handler,
             // and DashboardPrivacyPrefs storage) - opens the same per-card
             // number-visibility settings dialog as before.
@@ -100,90 +98,81 @@ fun SyncScreen(vm: MembersViewModel) {
         }
         Spacer(Modifier.height(20.dp))
 
-        Card(
-            colors = CardDefaults.cardColors(containerColor = GymColors.SurfaceCard),
-            shape = RoundedCornerShape(16.dp),
-            modifier = Modifier.fillMaxWidth().border(1.dp, GymColors.Border, RoundedCornerShape(16.dp))
-        ) {
-            Column(Modifier.padding(16.dp)) {
-                Text("This Device", color = GymColors.Text, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(10.dp))
-                OutlinedTextField(
-                    value = deviceName,
-                    onValueChange = { deviceName = it; vm.setDeviceName(it) },
-                    label = { Text("Device name", color = GymColors.TextFaint) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(10.dp),
-                    colors = gymFieldColors()
-                )
-            }
+        FuturisticCard(modifier = Modifier.fillMaxWidth()) {
+            Text("This Device", color = GymColors.Text, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(10.dp))
+            OutlinedTextField(
+                value = deviceName,
+                onValueChange = { deviceName = it; vm.setDeviceName(it) },
+                label = { Text("Device name", color = GymColors.TextFaint) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(10.dp),
+                colors = gymFieldColors()
+            )
         }
         Spacer(Modifier.height(14.dp))
 
-        Card(
-            colors = CardDefaults.cardColors(containerColor = GymColors.SurfaceCard),
-            shape = RoundedCornerShape(16.dp),
-            modifier = Modifier.fillMaxWidth().border(1.dp, GymColors.Border, RoundedCornerShape(16.dp))
-        ) {
-            Column(Modifier.padding(16.dp)) {
-                Text("Sync Circle Code", color = GymColors.Text, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(10.dp))
-                OutlinedTextField(
-                    value = codeInput,
-                    onValueChange = { codeInput = it.uppercase().filter { c -> c.isLetterOrDigit() }.take(8) },
-                    label = { Text("Sync code", color = GymColors.TextFaint) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(10.dp),
-                    colors = gymFieldColors()
+        FuturisticCard(modifier = Modifier.fillMaxWidth()) {
+            Text("Sync Circle Code", color = GymColors.Text, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(10.dp))
+            OutlinedTextField(
+                value = codeInput,
+                onValueChange = { codeInput = it.uppercase().filter { c -> c.isLetterOrDigit() }.take(8) },
+                label = { Text("Sync code", color = GymColors.TextFaint) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(10.dp),
+                colors = gymFieldColors()
+            )
+            Spacer(Modifier.height(10.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                SecondaryButton(
+                    text = "Generate New",
+                    modifier = Modifier.weight(1f).height(44.dp),
+                    onClick = {
+                        codeInput = (1..6).map { "ABCDEFGHJKLMNPQRSTUVWXYZ23456789".random() }.joinToString("")
+                        vm.setSyncCode(codeInput)
+                    }
                 )
-                Spacer(Modifier.height(10.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(
-                        onClick = {
-                            codeInput = (1..6).map { "ABCDEFGHJKLMNPQRSTUVWXYZ23456789".random() }.joinToString("")
-                            vm.setSyncCode(codeInput)
-                        },
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.weight(1f).height(44.dp)
-                    ) { Text("Generate New", color = GymColors.Text, fontWeight = FontWeight.SemiBold) }
-                    Button(
-                        onClick = { vm.setSyncCode(codeInput) },
-                        enabled = codeInput.length >= 4,
-                        colors = ButtonDefaults.buttonColors(containerColor = GymColors.Accent, disabledContainerColor = GymColors.Surface2),
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.weight(1f).height(44.dp)
-                    ) { Text("Save Code", fontWeight = FontWeight.Bold, color = if (codeInput.length >= 4) Color.Black else GymColors.TextFaint) }
-                }
+                PrimaryButton(
+                    text = "Save Code",
+                    enabled = codeInput.length >= 4,
+                    modifier = Modifier.weight(1f).height(44.dp),
+                    onClick = { vm.setSyncCode(codeInput) }
+                )
             }
         }
         Spacer(Modifier.height(14.dp))
 
         val syncInteractionSource = remember { MutableInteractionSource() }
-        Button(
-            onClick = {
-                syncing = true
-                status = "Starting sync\u2026"
-                vm.startSync(
-                    onStatus = { status = it },
-                    onDone = { outcome ->
-                        syncing = false
-                        status = when (outcome) {
-                            is SyncOutcome.Success -> "Synced with ${outcome.peerName} \u2014 ${outcome.recordCount} record(s) merged."
-                            SyncOutcome.NoCodeSet -> "Set a sync code first."
-                            SyncOutcome.NotFound -> "No authorized device found. Make sure all phones are on the same Wi-Fi or hotspot, have the same sync code, and have this Sync screen open."
-                            is SyncOutcome.Error -> "Sync failed: ${outcome.message}"
+        Row(
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(50.dp)
+                .gymPressScale(syncInteractionSource)
+                .clip(GymShapes.md)
+                .background(if (!syncing) GymColors.PrimaryGradient else Brush.linearGradient(listOf(GymColors.Surface3, GymColors.Surface3)))
+                .let { if (!syncing) it.neonGlow(GymColors.AccentBright, alpha = 0.28f, shape = GymShapes.md) else it }
+                .clickable(interactionSource = syncInteractionSource, indication = null, enabled = !syncing) {
+                    syncing = true
+                    status = "Starting sync\u2026"
+                    vm.startSync(
+                        onStatus = { status = it },
+                        onDone = { outcome ->
+                            syncing = false
+                            status = when (outcome) {
+                                is SyncOutcome.Success -> "Synced with ${outcome.peerName} \u2014 ${outcome.recordCount} record(s) merged."
+                                SyncOutcome.NoCodeSet -> "Set a sync code first."
+                                SyncOutcome.NotFound -> "No authorized device found. Make sure all phones are on the same Wi-Fi or hotspot, have the same sync code, and have this Sync screen open."
+                                is SyncOutcome.Error -> "Sync failed: ${outcome.message}"
+                            }
+                            paired = vm.pairedDevices()
                         }
-                        paired = vm.pairedDevices()
-                    }
-                )
-            },
-            enabled = !syncing,
-            colors = ButtonDefaults.buttonColors(containerColor = GymColors.Accent, disabledContainerColor = GymColors.Surface2),
-            shape = RoundedCornerShape(12.dp),
-            interactionSource = syncInteractionSource,
-            modifier = Modifier.fillMaxWidth().height(50.dp).gymPressScale(syncInteractionSource)
+                    )
+                }
         ) {
             // Section 16: idle <-> working content swaps with a short cross-fade
             // instead of an instant replace, communicating idle -> working ->
@@ -194,12 +183,12 @@ fun SyncScreen(vm: MembersViewModel) {
                 label = "syncButtonContent"
             ) { isSyncing ->
                 if (isSyncing) {
-                    CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.Black, strokeWidth = 2.dp)
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color(0xFF06121A), strokeWidth = 2.dp)
                 } else {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Filled.Sync, null, tint = Color.Black)
+                        Icon(Icons.Filled.Sync, null, tint = Color(0xFF06121A))
                         Spacer(Modifier.width(8.dp))
-                        Text("Sync Now", fontWeight = FontWeight.Bold, color = Color.Black, fontSize = 15.sp)
+                        Text("Sync Now", fontWeight = FontWeight.Bold, color = Color(0xFF06121A), fontSize = 15.sp, fontFamily = GymFonts.Display)
                     }
                 }
             }
@@ -211,27 +200,28 @@ fun SyncScreen(vm: MembersViewModel) {
         }
 
         Spacer(Modifier.height(20.dp))
-        Text(
-            "PAIRED DEVICES (${paired.size})",
-            color = GymColors.TextFaint, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp
-        )
+        GymSectionLabel("Paired Devices (${paired.size})")
         Spacer(Modifier.height(8.dp))
         if (paired.isEmpty()) {
-            Text("No other devices synced yet.", color = GymColors.TextFaint, fontSize = 12.sp)
+            GymEmptyState("No other devices synced yet.", icon = Icons.Filled.Sync)
         } else {
             paired.forEach { d ->
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(bottom = 8.dp)
-                        .clip(RoundedCornerShape(12.dp))
+                        .clip(GymShapes.md)
                         .background(GymColors.SurfaceCard)
-                        .border(1.dp, GymColors.Border, RoundedCornerShape(12.dp))
+                        .border(1.dp, GymColors.Border, GymShapes.md)
                         .padding(12.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(d.name, color = GymColors.Text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(modifier = Modifier.size(8.dp).background(GymColors.Success, androidx.compose.foundation.shape.CircleShape))
+                        Spacer(Modifier.width(8.dp))
+                        Text(d.name, color = GymColors.Text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                    }
                     Text("Last synced ${formatDate(d.lastSyncedMillis)}", color = GymColors.TextMuted, fontSize = 11.sp)
                 }
             }

@@ -281,7 +281,7 @@ fun EnrollFingerprintScreen(member: Member, vm: MembersViewModel, returnTo: Scre
         ) {
             Icon(Icons.Filled.ArrowBack, null, tint = GymColors.Text, modifier = Modifier.clickable { onNavigate(returnTo) })
             Spacer(Modifier.width(10.dp))
-            Text("ENROLL FINGERPRINT", color = GymColors.Text, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, letterSpacing = 0.5.sp)
+            Text("ENROLL FINGERPRINT", color = GymColors.Text, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, letterSpacing = 0.5.sp, fontFamily = GymFonts.Display)
         }
 
         Column(
@@ -309,6 +309,19 @@ fun EnrollFingerprintScreen(member: Member, vm: MembersViewModel, returnTo: Scre
             }
 
             Box(contentAlignment = Alignment.Center) {
+                // Decorative targeting frame (Stitch "Live Scanner Viewport"
+                // corner brackets) behind the real scan circle below — purely
+                // visual, never gates or delays runScan()/capture below.
+                Box(modifier = Modifier.size(176.dp)) {
+                    listOf(Alignment.TopStart, Alignment.TopEnd, Alignment.BottomStart, Alignment.BottomEnd).forEach { corner ->
+                        Box(
+                            modifier = Modifier
+                                .align(corner)
+                                .size(18.dp)
+                                .border(2.dp, GymColors.Accent.copy(alpha = 0.6f), GymShapes.sm)
+                        )
+                    }
+                }
                 // Section 18: subtle breathing/pulsing ring while waiting for a
                 // finger on the scanner — communicates "ready and listening"
                 // without ever touching capture/hardware timing, which all
@@ -347,9 +360,10 @@ fun EnrollFingerprintScreen(member: Member, vm: MembersViewModel, returnTo: Scre
                     modifier = Modifier
                         .graphicsLayer { translationX = shakeOffset.value }
                         .size(130.dp)
+                        .neonGlow(if (done) GymColors.Success else GymColors.AccentBright, alpha = 0.32f, radius = 16.dp, shape = CircleShape)
                         .clip(CircleShape)
-                        .background(if (done) GymColors.Accent else GymColors.SurfaceCard)
-                        .border(2.dp, if (done) GymColors.Accent else GymColors.Border, CircleShape)
+                        .background(if (done) GymColors.SuccessGradient else GymColors.PrimaryGradient)
+                        .border(2.dp, if (done) GymColors.Success else GymColors.AccentBright, CircleShape)
                         .clickable(enabled = !done && !scanInFlight) { runScan() },
                     contentAlignment = Alignment.Center
                 ) {
@@ -364,7 +378,7 @@ fun EnrollFingerprintScreen(member: Member, vm: MembersViewModel, returnTo: Scre
                         Icon(
                             if (isDone) Icons.Filled.CheckCircle else Icons.Filled.Fingerprint,
                             null,
-                            tint = if (isDone) Color.Black else GymColors.Accent,
+                            tint = Color(0xFF06121A),
                             modifier = Modifier.size(64.dp)
                         )
                     }
@@ -381,25 +395,20 @@ fun EnrollFingerprintScreen(member: Member, vm: MembersViewModel, returnTo: Scre
             }
             if (!done) {
                 Spacer(Modifier.height(28.dp))
-                Button(
-                    onClick = { runScan() },
+                PrimaryButton(
+                    text = if (firstScan == null) "Start Scan" else "Scan Again to Confirm",
                     enabled = !scanInFlight,
-                    colors = ButtonDefaults.buttonColors(containerColor = GymColors.Accent),
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.height(48.dp)
-                ) {
-                    Text(if (firstScan == null) "Start Scan" else "Scan Again to Confirm", fontWeight = FontWeight.Bold, color = Color.Black)
-                }
+                    icon = Icons.Filled.Fingerprint,
+                    modifier = Modifier.fillMaxWidth(0.8f),
+                    onClick = { runScan() }
+                )
             }
         }
 
-        Button(
-            onClick = { onNavigate(returnTo) },
-            modifier = Modifier.fillMaxWidth().height(50.dp).padding(bottom = 16.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = if (done) GymColors.Accent else GymColors.SurfaceCard),
-            shape = RoundedCornerShape(12.dp)
-        ) {
-            Text(if (done) "Done" else "Cancel", color = if (done) Color.Black else GymColors.TextMuted, fontWeight = FontWeight.Bold)
+        if (done) {
+            PrimaryButton(text = "Done", modifier = Modifier.padding(bottom = 16.dp), onClick = { onNavigate(returnTo) })
+        } else {
+            SecondaryButton(text = "Cancel", modifier = Modifier.padding(bottom = 16.dp), onClick = { onNavigate(returnTo) })
         }
     }
 }
