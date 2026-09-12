@@ -156,6 +156,9 @@ fun BottomNav(current: Screen, modifier: Modifier = Modifier, onSelect: (Screen)
     Box(
         modifier = modifier
             .fillMaxWidth()
+            // Respect gesture/3-button system navigation insets so the dock
+            // never sits under (or gets covered by) the system nav bar.
+            .navigationBarsPadding()
             .padding(horizontal = 14.dp, vertical = 10.dp)
             .clip(GymShapes.xl)
             .background(GymColors.Bg.copy(alpha = 0.88f))
@@ -164,7 +167,6 @@ fun BottomNav(current: Screen, modifier: Modifier = Modifier, onSelect: (Screen)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
             items.forEach { (screen, icon, label) ->
@@ -178,12 +180,17 @@ fun BottomNav(current: Screen, modifier: Modifier = Modifier, onSelect: (Screen)
                 val tint by animateColorAsState(
                     if (active) GymColors.AccentBright else GymColors.TextFaint, animationSpec = GymMotion.standardTween(), label = "navTint"
                 )
+                // Fix: equal-width slots via weight(1f) instead of
+                // SpaceEvenly + ad hoc horizontal padding, so every icon sits
+                // perfectly centered in its own slot on any screen width and
+                // nothing gets clipped at the edges.
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier
+                        .weight(1f)
                         .clip(GymShapes.md)
                         .clickable { onSelect(screen) }
-                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                        .padding(vertical = 4.dp)
                 ) {
                     if (isAdd) {
                         // Elevated central floating action button, per the
@@ -210,14 +217,20 @@ fun BottomNav(current: Screen, modifier: Modifier = Modifier, onSelect: (Screen)
                             Icon(icon, contentDescription = label, tint = tint)
                         }
                     }
-                    Spacer(Modifier.height(2.dp))
-                    Text(
-                        label,
-                        fontSize = 10.sp,
-                        fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
-                        color = if (isAdd) GymColors.AccentBright else tint,
-                        fontFamily = GymFonts.Display
-                    )
+                    // Text requirement: only "Add" keeps a visible label now.
+                    // The other four destinations stay icon-only — still
+                    // clearly identifiable by their existing icons, and their
+                    // content description keeps the label for accessibility.
+                    if (isAdd) {
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            label,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = GymColors.AccentBright,
+                            fontFamily = GymFonts.Display
+                        )
+                    }
                 }
             }
         }
@@ -363,50 +376,6 @@ fun DashboardScreen(members: List<Member>, holdMembersCount: Int = 0, dueMembers
                 }
             }
         } else {
-        item {
-            // Hero metric panel (Stitch "Total Registered Members" ring):
-            // purely a bigger, more prominent presentation of the exact same
-            // Total Members count/destination already in the grid below —
-            // no new statistic, same StatCard tap target (Screen.TotalMembers),
-            // same totalVisible privacy gate. The ring itself is decorative
-            // chrome (a closed circle), not a fabricated percentage — there's
-            // no real "% of a target" figure in the data model to show.
-            val totalInteraction = remember { MutableInteractionSource() }
-            GlassHeroCard(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 14.dp)
-                    .gymPressScale(totalInteraction)
-                    .clip(GymShapes.xl)
-                    .clickable(interactionSource = totalInteraction, indication = null) { onNavigate(Screen.TotalMembers) }
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-                    Box(contentAlignment = Alignment.Center, modifier = Modifier.size(140.dp)) {
-                        CircularProgressIndicator(
-                            progress = 1f,
-                            modifier = Modifier.fillMaxSize(),
-                            color = GymColors.AccentBright,
-                            strokeWidth = 6.dp,
-                            trackColor = GymColors.Surface3
-                        )
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(Icons.Filled.Groups, contentDescription = null, tint = GymColors.Accent, modifier = Modifier.size(20.dp))
-                            Spacer(Modifier.height(2.dp))
-                            if (totalVisible) {
-                                Text(members.size.toString(), color = GymColors.Text, fontSize = 34.sp, fontWeight = FontWeight.ExtraBold, fontFamily = GymFonts.Display)
-                            }
-                            Text("TOTAL", color = GymColors.TextFaint, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp, fontFamily = GymFonts.Display)
-                        }
-                    }
-                    Spacer(Modifier.height(12.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Total Registered Members", color = GymColors.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                        Spacer(Modifier.width(4.dp))
-                        Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = GymColors.TextFaint, modifier = Modifier.size(18.dp))
-                    }
-                }
-            }
-        }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(bottom = 10.dp)) {
                 // Fix #1 / Feature 3: Total Members keeps its button/tap
@@ -866,7 +835,9 @@ fun AddEditMemberScreen(vm: MembersViewModel, existing: Member?, onNavigate: (Sc
             .imePadding()
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 16.dp)
-            .padding(top = 20.dp, bottom = 90.dp)
+            // Fix: reserved bottom space increased so the Add/Save button is
+            // never left underneath the floating bottom nav dock.
+            .padding(top = 20.dp, bottom = 140.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(
@@ -995,9 +966,6 @@ fun AddEditMemberScreen(vm: MembersViewModel, existing: Member?, onNavigate: (Sc
                     }
                 }
             } else {
-                // Scanner-frame treatment matching the Stitch "ID Proof Scan"
-                // card: dashed-feel corner brackets around a dark viewport.
-                // Same tap target / source sheet as before.
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1007,15 +975,6 @@ fun AddEditMemberScreen(vm: MembersViewModel, existing: Member?, onNavigate: (Sc
                         .border(1.dp, GymColors.BorderSubtle, GymShapes.md)
                         .clickable { showIdPhotoSourceSheet = true }
                 ) {
-                    listOf(Alignment.TopStart, Alignment.TopEnd, Alignment.BottomStart, Alignment.BottomEnd).forEach { corner ->
-                        Box(
-                            modifier = Modifier
-                                .align(corner)
-                                .padding(6.dp)
-                                .size(10.dp)
-                                .background(GymColors.Accent, GymShapes.sm)
-                        )
-                    }
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier.align(Alignment.Center)
@@ -1511,7 +1470,18 @@ fun RenewScreen(member: Member, vm: MembersViewModel, onNavigate: (Screen) -> Un
     val months = PLAN_MONTHS[plan] ?: 1L
     val newExpiry = addMonthsMillis(startDate.toMillis(), months)
 
-    Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp).padding(top = 20.dp, bottom = 90.dp)) {
+    // Fix (per request): Renew screen made scrollable the same way Add/Edit
+    // Member already is, with imePadding for the Fee field's keyboard and
+    // enough reserved bottom space that Confirm Renewal is never hidden
+    // behind the floating bottom nav dock.
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .imePadding()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp)
+            .padding(top = 20.dp, bottom = 140.dp)
+    ) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 16.dp)) {
             Icon(Icons.Filled.ArrowBack, null, tint = GymColors.Text, modifier = Modifier.clickable { onNavigate(Screen.Profile(member.id)) })
             Spacer(Modifier.width(10.dp))

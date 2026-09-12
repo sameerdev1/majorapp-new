@@ -21,6 +21,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -274,7 +276,22 @@ fun EnrollFingerprintScreen(member: Member, vm: MembersViewModel, returnTo: Scre
         }
     }
 
-    Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
+    // Fix (spec: fingerprint success screen scrolling / Done button): the
+    // whole screen now scrolls, with bottom content padding that clears the
+    // floating bottom nav dock, so the Done/Cancel button and the rest of
+    // the content can never end up hidden behind it. weight(1f) can't be
+    // used inside a scrollable Column (it needs a bounded height), so the
+    // middle section below now just flows normally instead of being forced
+    // to fill/center in the remaining space — visually identical on screens
+    // where everything already fit.
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .imePadding()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp)
+            .padding(bottom = 140.dp)
+    ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(top = 20.dp, bottom = 16.dp)
@@ -287,10 +304,9 @@ fun EnrollFingerprintScreen(member: Member, vm: MembersViewModel, returnTo: Scre
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .weight(1f)
                 .padding(vertical = 12.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+            verticalArrangement = Arrangement.Top
         ) {
             Text(member.name, color = GymColors.Text, fontSize = 18.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(24.dp))
@@ -309,19 +325,6 @@ fun EnrollFingerprintScreen(member: Member, vm: MembersViewModel, returnTo: Scre
             }
 
             Box(contentAlignment = Alignment.Center) {
-                // Decorative targeting frame (Stitch "Live Scanner Viewport"
-                // corner brackets) behind the real scan circle below — purely
-                // visual, never gates or delays runScan()/capture below.
-                Box(modifier = Modifier.size(176.dp)) {
-                    listOf(Alignment.TopStart, Alignment.TopEnd, Alignment.BottomStart, Alignment.BottomEnd).forEach { corner ->
-                        Box(
-                            modifier = Modifier
-                                .align(corner)
-                                .size(18.dp)
-                                .border(2.dp, GymColors.Accent.copy(alpha = 0.6f), GymShapes.sm)
-                        )
-                    }
-                }
                 // Section 18: subtle breathing/pulsing ring while waiting for a
                 // finger on the scanner — communicates "ready and listening"
                 // without ever touching capture/hardware timing, which all
@@ -385,10 +388,13 @@ fun EnrollFingerprintScreen(member: Member, vm: MembersViewModel, returnTo: Scre
                 }
             }
             Spacer(Modifier.height(24.dp))
-            Text(
-                if (done) "Fingerprint enrolled successfully" else statusText(status, detail),
-                color = GymColors.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold
-            )
+            AnimatedContent(
+                targetState = if (done) "Fingerprint enrolled successfully" else statusText(status, detail),
+                transitionSpec = { fadeIn(GymMotion.standardTween()) togetherWith fadeOut(GymMotion.fastTween()) },
+                label = "fingerprintStatusText"
+            ) { message ->
+                Text(message, color = GymColors.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+            }
             if (!done && detail.isNotBlank() && status != ScanStatus.FAILED) {
                 Spacer(Modifier.height(6.dp))
                 Text(detail, color = GymColors.TextMuted, fontSize = 13.sp)
