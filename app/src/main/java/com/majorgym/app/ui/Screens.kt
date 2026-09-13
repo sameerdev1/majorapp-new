@@ -39,14 +39,22 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Outline
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -136,6 +144,81 @@ fun StatusBadge(status: MemberStatus) {
     }
 }
 
+// Fix 3: custom top-edge outline for the bottom navigation dock. Replaces
+// the previous plain large rounded-rectangle outline (GymShapes.xl on all
+// four corners) with ONE continuous path: straight top edges over
+// Dashboard/Attendance and Backup/Sync, smoothly curving (horizontal-tangent
+// cubic Beziers, so there is no seam/kink where the curve meets the straight
+// edges) into a shallow cradle centered on the raised Add button in the
+// middle. The bottom and side corners keep the same rounding radius as
+// before - only the TOP edge shape changed. Because this is applied via
+// background(shape)/border(shape) rather than clip(shape), the Add button
+// (drawn as ordinary Row content on top) is never cut off by the cradle -
+// it simply is no longer covered by a border stroke or background fill in
+// that region, which is what makes it read as notched into the surface.
+private fun bottomNavCradlePath(
+    size: Size,
+    cornerRadiusPx: Float,
+    notchHalfWidthPx: Float,
+    notchFlatHalfWidthPx: Float,
+    notchDepthPx: Float
+): Path {
+    val w = size.width
+    val h = size.height
+    val cx = w / 2f
+    val r = cornerRadiusPx.coerceAtMost(minOf(w, h) / 2f)
+    val dx = (notchHalfWidthPx - notchFlatHalfWidthPx).coerceAtLeast(1f)
+    val k = dx * 0.55f // circle-approximation constant, keeps the curve's bulge natural
+    return Path().apply {
+        moveTo(r, 0f)
+        // Straight top edge over Dashboard/Attendance, up to the cradle's left opening.
+        lineTo(cx - notchHalfWidthPx, 0f)
+        // Curve down into the cradle - horizontal tangent at the straight edge (cp1.y = 0)
+        // and horizontal tangent at the flat bottom (cp2.y = notchDepthPx) so both joins are smooth.
+        cubicTo(
+            cx - notchHalfWidthPx + k, 0f,
+            cx - notchFlatHalfWidthPx - k, notchDepthPx,
+            cx - notchFlatHalfWidthPx, notchDepthPx
+        )
+        // Flat bottom of the cradle, directly under the Add button.
+        lineTo(cx + notchFlatHalfWidthPx, notchDepthPx)
+        // Curve back up out of the cradle, mirroring the entry curve.
+        cubicTo(
+            cx + notchFlatHalfWidthPx + k, notchDepthPx,
+            cx + notchHalfWidthPx - k, 0f,
+            cx + notchHalfWidthPx, 0f
+        )
+        // Straight top edge over Backup/Sync, up to the top-right corner.
+        lineTo(w - r, 0f)
+        arcTo(Rect(w - 2 * r, 0f, w, 2 * r), -90f, 90f, false)
+        lineTo(w, h - r)
+        arcTo(Rect(w - 2 * r, h - 2 * r, w, h), 0f, 90f, false)
+        lineTo(r, h)
+        arcTo(Rect(0f, h - 2 * r, 2 * r, h), 90f, 90f, false)
+        lineTo(0f, r)
+        arcTo(Rect(0f, 0f, 2 * r, 2 * r), 180f, 90f, false)
+        close()
+    }
+}
+
+private class BottomNavCradleShape(
+    private val cornerRadius: Dp,
+    private val notchHalfWidth: Dp,
+    private val notchFlatHalfWidth: Dp,
+    private val notchDepth: Dp
+) : Shape {
+    override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density): Outline {
+        val path = bottomNavCradlePath(
+            size = size,
+            cornerRadiusPx = with(density) { cornerRadius.toPx() },
+            notchHalfWidthPx = with(density) { notchHalfWidth.toPx() },
+            notchFlatHalfWidthPx = with(density) { notchFlatHalfWidth.toPx() },
+            notchDepthPx = with(density) { notchDepth.toPx() }
+        )
+        return Outline.Generic(path)
+    }
+}
+
 @Composable
 fun BottomNav(current: Screen, modifier: Modifier = Modifier, onSelect: (Screen) -> Unit) {
     // "Members" was removed from here (spec: member management is already
@@ -153,6 +236,18 @@ fun BottomNav(current: Screen, modifier: Modifier = Modifier, onSelect: (Screen)
         Triple(Screen.Backup as Screen, Icons.Filled.Storage, "Backup"),
         Triple(Screen.Sync as Screen, Icons.Filled.Sync, "Sync")
     )
+    // Fix 3: the Add button sits centered in the middle slot of 5 equal-width
+    // items, so its horizontal center always lands exactly on this Box's own
+    // horizontal center - the cradle shape below is centered the same way,
+    // so the notch always lines up with the button regardless of screen width.
+    val navCradleShape = remember {
+        BottomNavCradleShape(
+            cornerRadius = 24.dp,
+            notchHalfWidth = 32.dp,
+            notchFlatHalfWidth = 16.dp,
+            notchDepth = 22.dp
+        )
+    }
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -160,9 +255,12 @@ fun BottomNav(current: Screen, modifier: Modifier = Modifier, onSelect: (Screen)
             // never sits under (or gets covered by) the system nav bar.
             .navigationBarsPadding()
             .padding(horizontal = 14.dp, vertical = 10.dp)
-            .clip(GymShapes.xl)
-            .background(GymColors.Bg.copy(alpha = 0.88f))
-            .border(1.dp, GymColors.BorderSubtle, GymShapes.xl)
+            // No .clip() here on purpose: background/border are painted
+            // following the cradle shape's outline, but content (the Row,
+            // including the raised Add button) is left unclipped so the
+            // button can visually sit in the notch instead of being cut by it.
+            .background(GymColors.Bg.copy(alpha = 0.88f), navCradleShape)
+            .border(1.dp, GymColors.BorderSubtle, navCradleShape)
             .padding(vertical = 10.dp)
     ) {
         Row(
@@ -341,15 +439,15 @@ fun DashboardScreen(members: List<Member>, holdMembersCount: Int = 0, dueMembers
         contentPadding = PaddingValues(top = 20.dp, bottom = 90.dp)
     ) {
         item {
+            // Fix 1: Dashboard header shows only the "MAJOR GYM" title now -
+            // the dumbbell/gym logo box and the "Membership & Biometric
+            // Kiosk" subtitle have been removed. No replacement icon or
+            // subtitle was added; this is Dashboard-header-only and does not
+            // touch the launcher icon, splash branding, or any other icon
+            // elsewhere in the app.
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                Box(Modifier.clip(RoundedCornerShape(10.dp)).background(GymColors.Accent).padding(8.dp)) {
-                    Icon(Icons.Filled.FitnessCenter, null, tint = Color.Black, modifier = Modifier.size(20.dp))
-                }
-                Spacer(Modifier.width(10.dp))
-                Column(Modifier.weight(1f)) {
-                    GymScreenTitle("MAJOR GYM")
-                    Text("Membership & Biometric Kiosk", color = GymColors.TextMuted, fontSize = 12.sp)
-                }
+                GymScreenTitle("MAJOR GYM")
+                Spacer(Modifier.weight(1f))
                 // Relocation: the Dashboard number-visibility (gear) and
                 // Dashboard Privacy (eye) controls that used to sit here have
                 // moved to the Sync page header - same icons, same click
@@ -377,17 +475,21 @@ fun DashboardScreen(members: List<Member>, holdMembersCount: Int = 0, dueMembers
             }
         } else {
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(bottom = 10.dp)) {
+            // Fix 2: Row height is driven by IntrinsicSize.Min and each
+            // StatCard fills that height, so both cards in a row always
+            // share the same height and the centering inside StatCard has
+            // real vertical room to work with (not just a wrap-content box).
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(bottom = 10.dp).height(IntrinsicSize.Min)) {
                 // Fix #1 / Feature 3: Total Members keeps its button/tap
                 // behavior (still opens the full member list) regardless -
                 // only whether the number itself is shown is now the
                 // owner's own per-card choice (see the settings gear above).
-                StatCard("Total Members", if (totalVisible) members.size.toString() else null, Modifier.weight(1f)) { onNavigate(Screen.TotalMembers) }
-                StatCard("Active", if (activeVisible) active.toString() else null, Modifier.weight(1f)) { onNavigate(Screen.ActiveMembers) }
+                StatCard("Total Members", if (totalVisible) members.size.toString() else null, Modifier.weight(1f).fillMaxHeight()) { onNavigate(Screen.TotalMembers) }
+                StatCard("Active", if (activeVisible) active.toString() else null, Modifier.weight(1f).fillMaxHeight()) { onNavigate(Screen.ActiveMembers) }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(bottom = 14.dp)) {
-                StatCard("Expiring Soon", if (expiringVisible) expiring.toString() else null, Modifier.weight(1f)) { onNavigate(Screen.ExpiringMembers) }
-                StatCard("Expired", if (expiredVisible) expired.toString() else null, Modifier.weight(1f)) { onNavigate(Screen.ExpiredMembers) }
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(bottom = 14.dp).height(IntrinsicSize.Min)) {
+                StatCard("Expiring Soon", if (expiringVisible) expiring.toString() else null, Modifier.weight(1f).fillMaxHeight()) { onNavigate(Screen.ExpiringMembers) }
+                StatCard("Expired", if (expiredVisible) expired.toString() else null, Modifier.weight(1f).fillMaxHeight()) { onNavigate(Screen.ExpiredMembers) }
             }
         }
         item {
@@ -643,7 +745,13 @@ fun StatCard(label: String, value: String?, modifier: Modifier = Modifier, onCli
     // restrained treatment as the primary CTA buttons — only when the card
     // is actually clickable.
     val cardInteractionSource = remember { MutableInteractionSource() }
-    Column(
+    // Fix 2: title + number are wrapped in a Box that fills the card and
+    // centers its content both horizontally and vertically (Alignment.Center
+    // on the Box, plus horizontalAlignment.CenterHorizontally on the inner
+    // Column so multi-line/short text stays centered too). Card dimensions,
+    // padding, shape, colors, font sizes/weights and the existing
+    // title-number spacing are all unchanged - only the alignment changed.
+    Box(
         modifier = modifier
             .clip(GymShapes.lg)
             .background(GymColors.CardGlassGradient)
@@ -655,14 +763,18 @@ fun StatCard(label: String, value: String?, modifier: Modifier = Modifier, onCli
                 else it
             }
             .padding(16.dp)
+            .fillMaxWidth(),
+        contentAlignment = Alignment.Center
     ) {
-        Text(label.uppercase(), color = GymColors.TextFaint, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.6.sp, fontFamily = GymFonts.Display)
-        // Fix #1 (Total Members): a null value means "don't show a count at
-        // all" - the card still renders (and is still tappable) with just
-        // its label, instead of a number row.
-        if (displayText != null) {
-            Spacer(Modifier.height(8.dp))
-            Text(displayText, color = GymColors.Accent, fontSize = 30.sp, fontWeight = FontWeight.ExtraBold, fontFamily = GymFonts.Display)
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(label.uppercase(), color = GymColors.TextFaint, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.6.sp, fontFamily = GymFonts.Display, textAlign = TextAlign.Center)
+            // Fix #1 (Total Members): a null value means "don't show a count at
+            // all" - the card still renders (and is still tappable) with just
+            // its label, instead of a number row.
+            if (displayText != null) {
+                Spacer(Modifier.height(8.dp))
+                Text(displayText, color = GymColors.Accent, fontSize = 30.sp, fontWeight = FontWeight.ExtraBold, fontFamily = GymFonts.Display, textAlign = TextAlign.Center)
+            }
         }
     }
 }
@@ -1580,8 +1692,18 @@ fun RenewalSuccessScreen(member: Member, justRenewed: Boolean = false, onNavigat
         showActions = true
     }
 
+    // Fix 4: added verticalScroll so the Done button can never end up hidden
+    // below the visible screen area on shorter devices. verticalArrangement =
+    // Center is kept - combined with fillMaxSize, content shorter than the
+    // screen still renders centered exactly as before, while content taller
+    // than the screen (small devices/large font settings) becomes scrollable
+    // so Done is always reachable.
+    val scrollState = rememberScrollState()
     Column(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(scrollState)
+            .padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
