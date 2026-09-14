@@ -43,7 +43,6 @@ fun FilteredMembersScreen(
     members: List<Member>,
     showSearch: Boolean,
     emptyText: String,
-    showDueAmount: Boolean = false,
     onNavigate: (Screen) -> Unit
 ) {
     var query by remember { mutableStateOf("") }
@@ -62,7 +61,7 @@ fun FilteredMembersScreen(
                 modifier = Modifier.clickable { onNavigate(Screen.Dashboard) }
             )
             Spacer(Modifier.width(12.dp))
-            GymScreenTitle(title)
+            Text(title.uppercase(), color = GymColors.Text, fontWeight = FontWeight.ExtraBold, fontSize = 22.sp, letterSpacing = 0.5.sp)
         }
 
         if (showSearch) {
@@ -85,7 +84,7 @@ fun FilteredMembersScreen(
         } else {
             LazyColumn(contentPadding = PaddingValues(bottom = 90.dp)) {
                 items(shown, key = { it.id }) { m ->
-                    MemberRow(m, onNavigate, Modifier.animateItemPlacement(), showDueAmount)
+                    MemberRow(m, onNavigate, Modifier.animateItemPlacement())
                 }
             }
         }

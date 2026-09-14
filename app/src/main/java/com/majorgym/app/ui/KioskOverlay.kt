@@ -119,22 +119,16 @@ fun KioskResultOverlay(phase: KioskPhase, member: Member?) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(GymColors.Bg.copy(alpha = 0.96f)),
+                .background(Color.Black.copy(alpha = 0.94f)),
             contentAlignment = Alignment.Center
         ) {
-            val frameGlow = when (phase) {
-                KioskPhase.MEMBER_ACTIVE -> GymColors.Success
-                KioskPhase.MEMBER_EXPIRED, KioskPhase.NOT_RECOGNIZED -> GymColors.Danger
-                KioskPhase.IDLE -> GymColors.AccentBright
-            }
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier
                     .fillMaxWidth(0.9f)
-                    .neonGlow(frameGlow, alpha = 0.28f, radius = 20.dp, shape = GymShapes.xl)
-                    .clip(GymShapes.xl)
-                    .background(GymColors.CardGlassGradient)
-                    .border(1.dp, frameGlow.copy(alpha = 0.5f), GymShapes.xl)
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(GymColors.SurfaceCard)
+                    .border(1.dp, GymColors.Border, RoundedCornerShape(24.dp))
                     .padding(32.dp)
             ) {
                 when (phase) {
@@ -143,7 +137,6 @@ fun KioskResultOverlay(phase: KioskPhase, member: Member?) {
                         Box(
                             modifier = Modifier
                                 .size(140.dp)
-                                .neonGlow(if (phase == KioskPhase.MEMBER_ACTIVE) GymColors.Success else GymColors.Danger, alpha = 0.4f, radius = 14.dp, shape = CircleShape)
                                 .clip(CircleShape)
                                 .background(GymColors.Surface2)
                                 .border(3.dp, if (phase == KioskPhase.MEMBER_ACTIVE) GymColors.Success else GymColors.Danger, CircleShape),
@@ -169,27 +162,27 @@ fun KioskResultOverlay(phase: KioskPhase, member: Member?) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier
-                                    .clip(GymShapes.pill)
+                                    .clip(RoundedCornerShape(50))
                                     .background(GymColors.Success.copy(alpha = 0.15f))
-                                    .border(1.dp, GymColors.Success.copy(alpha = 0.45f), GymShapes.pill)
+                                    .border(1.dp, GymColors.Success.copy(alpha = 0.4f), RoundedCornerShape(50))
                                     .padding(horizontal = 20.dp, vertical = 8.dp)
                             ) {
                                 Icon(Icons.Filled.CheckCircle, null, tint = GymColors.Success, modifier = Modifier.size(32.dp))
                                 Spacer(Modifier.width(10.dp))
-                                Text("MEMBER ACTIVE", color = GymColors.Success, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 0.5.sp, fontFamily = GymFonts.Display)
+                                Text("MEMBER ACTIVE", color = GymColors.Success, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 0.5.sp)
                             }
                         } else {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier
-                                    .clip(GymShapes.pill)
+                                    .clip(RoundedCornerShape(50))
                                     .background(GymColors.Danger.copy(alpha = 0.15f))
-                                    .border(1.dp, GymColors.Danger.copy(alpha = 0.45f), GymShapes.pill)
+                                    .border(1.dp, GymColors.Danger.copy(alpha = 0.4f), RoundedCornerShape(50))
                                     .padding(horizontal = 20.dp, vertical = 8.dp)
                             ) {
                                 Icon(Icons.Filled.Close, null, tint = GymColors.Danger, modifier = Modifier.size(32.dp))
                                 Spacer(Modifier.width(10.dp))
-                                Text("MEMBERSHIP EXPIRED", color = GymColors.Danger, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 0.5.sp, fontFamily = GymFonts.Display)
+                                Text("MEMBERSHIP EXPIRED", color = GymColors.Danger, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 0.5.sp)
                             }
                         }
                     }

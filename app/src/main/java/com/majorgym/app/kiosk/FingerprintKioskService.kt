@@ -19,7 +19,6 @@ import com.majorgym.app.MainActivity
 import com.majorgym.app.data.FingerprintScanner
 import com.majorgym.app.data.Member
 import com.majorgym.app.data.MemberStatus
-import com.majorgym.app.data.MembershipState
 import com.majorgym.app.data.ScannerHub
 import com.majorgym.app.data.statusOf
 import kotlinx.coroutines.CancellationException
@@ -179,14 +178,7 @@ class FingerprintKioskService : Service() {
             cacheJob = launch {
                 runCatching {
                     repository.observeAll().collect { list ->
-                        // Fix #7: Hold members keep their fingerprint template
-                        // (never deleted), but must not be matchable at
-                        // check-in - scanning one falls through to the
-                        // existing "Member Not Found" (NOT_RECOGNIZED) path
-                        // below exactly as if no template matched at all.
-                        enrolledCache = list.filter {
-                            it.fingerprintTemplate != null && it.membershipState != MembershipState.HOLD
-                        }
+                        enrolledCache = list.filter { it.fingerprintTemplate != null }
                             .sortedByDescending { it.lastAttendanceMillis ?: 0L }
                     }
                 }

@@ -1,7 +1,10 @@
 package com.majorgym.app.ui
 
-
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.net.Uri
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.FileProvider
@@ -39,22 +42,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Outline
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -100,7 +94,6 @@ fun StatusRing(photoPath: String?, name: String, status: MemberStatus, size: Dp 
     Box(
         modifier = Modifier
             .size(size)
-            .neonGlow(color, alpha = 0.30f, radius = 10.dp, shape = CircleShape)
             .clip(CircleShape)
             .border(2.dp, color, CircleShape)
             .padding(3.dp)
@@ -135,87 +128,12 @@ fun StatusBadge(status: MemberStatus) {
     val color by animateColorAsState(targetColor, animationSpec = GymMotion.standardTween(), label = "statusBadgeColor")
     Box(
         modifier = Modifier
-            .clip(GymShapes.pill)
+            .clip(RoundedCornerShape(50))
             .background(color.copy(alpha = 0.15f))
-            .border(1.dp, color.copy(alpha = 0.4f), GymShapes.pill)
+            .border(1.dp, color.copy(alpha = 0.35f), RoundedCornerShape(50))
             .padding(horizontal = 10.dp, vertical = 4.dp)
     ) {
-        Text(label, color = color, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp, fontFamily = GymFonts.Display)
-    }
-}
-
-// Fix 3: custom top-edge outline for the bottom navigation dock. Replaces
-// the previous plain large rounded-rectangle outline (GymShapes.xl on all
-// four corners) with ONE continuous path: straight top edges over
-// Dashboard/Attendance and Backup/Sync, smoothly curving (horizontal-tangent
-// cubic Beziers, so there is no seam/kink where the curve meets the straight
-// edges) into a shallow cradle centered on the raised Add button in the
-// middle. The bottom and side corners keep the same rounding radius as
-// before - only the TOP edge shape changed. Because this is applied via
-// background(shape)/border(shape) rather than clip(shape), the Add button
-// (drawn as ordinary Row content on top) is never cut off by the cradle -
-// it simply is no longer covered by a border stroke or background fill in
-// that region, which is what makes it read as notched into the surface.
-private fun bottomNavCradlePath(
-    size: Size,
-    cornerRadiusPx: Float,
-    notchHalfWidthPx: Float,
-    notchFlatHalfWidthPx: Float,
-    notchDepthPx: Float
-): Path {
-    val w = size.width
-    val h = size.height
-    val cx = w / 2f
-    val r = cornerRadiusPx.coerceAtMost(minOf(w, h) / 2f)
-    val dx = (notchHalfWidthPx - notchFlatHalfWidthPx).coerceAtLeast(1f)
-    val k = dx * 0.55f // circle-approximation constant, keeps the curve's bulge natural
-    return Path().apply {
-        moveTo(r, 0f)
-        // Straight top edge over Dashboard/Attendance, up to the cradle's left opening.
-        lineTo(cx - notchHalfWidthPx, 0f)
-        // Curve down into the cradle - horizontal tangent at the straight edge (cp1.y = 0)
-        // and horizontal tangent at the flat bottom (cp2.y = notchDepthPx) so both joins are smooth.
-        cubicTo(
-            cx - notchHalfWidthPx + k, 0f,
-            cx - notchFlatHalfWidthPx - k, notchDepthPx,
-            cx - notchFlatHalfWidthPx, notchDepthPx
-        )
-        // Flat bottom of the cradle, directly under the Add button.
-        lineTo(cx + notchFlatHalfWidthPx, notchDepthPx)
-        // Curve back up out of the cradle, mirroring the entry curve.
-        cubicTo(
-            cx + notchFlatHalfWidthPx + k, notchDepthPx,
-            cx + notchHalfWidthPx - k, 0f,
-            cx + notchHalfWidthPx, 0f
-        )
-        // Straight top edge over Backup/Sync, up to the top-right corner.
-        lineTo(w - r, 0f)
-        arcTo(Rect(w - 2 * r, 0f, w, 2 * r), -90f, 90f, false)
-        lineTo(w, h - r)
-        arcTo(Rect(w - 2 * r, h - 2 * r, w, h), 0f, 90f, false)
-        lineTo(r, h)
-        arcTo(Rect(0f, h - 2 * r, 2 * r, h), 90f, 90f, false)
-        lineTo(0f, r)
-        arcTo(Rect(0f, 0f, 2 * r, 2 * r), 180f, 90f, false)
-        close()
-    }
-}
-
-private class BottomNavCradleShape(
-    private val cornerRadius: Dp,
-    private val notchHalfWidth: Dp,
-    private val notchFlatHalfWidth: Dp,
-    private val notchDepth: Dp
-) : Shape {
-    override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density): Outline {
-        val path = bottomNavCradlePath(
-            size = size,
-            cornerRadiusPx = with(density) { cornerRadius.toPx() },
-            notchHalfWidthPx = with(density) { notchHalfWidth.toPx() },
-            notchFlatHalfWidthPx = with(density) { notchFlatHalfWidth.toPx() },
-            notchDepthPx = with(density) { notchDepth.toPx() }
-        )
-        return Outline.Generic(path)
+        Text(label, color = color, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
     }
 }
 
@@ -226,9 +144,6 @@ fun BottomNav(current: Screen, modifier: Modifier = Modifier, onSelect: (Screen)
     // which is untouched). Screen.Members and MembersScreen still exist in
     // the codebase, unmodified - this list is just where they stop being
     // reachable from.
-    // Same 5 destinations, same order, same onSelect wiring as before — only
-    // the visual treatment changed (glass dock + elevated center Add action,
-    // matching the Stitch "Navigation Command Dock").
     val items = listOf(
         Triple(Screen.Dashboard as Screen, Icons.Filled.Dashboard, "Dashboard"),
         Triple(Screen.AttendanceLogs as Screen, Icons.Filled.FactCheck, "Attendance Logs"),
@@ -236,99 +151,51 @@ fun BottomNav(current: Screen, modifier: Modifier = Modifier, onSelect: (Screen)
         Triple(Screen.Backup as Screen, Icons.Filled.Storage, "Backup"),
         Triple(Screen.Sync as Screen, Icons.Filled.Sync, "Sync")
     )
-    // Fix 3: the Add button sits centered in the middle slot of 5 equal-width
-    // items, so its horizontal center always lands exactly on this Box's own
-    // horizontal center - the cradle shape below is centered the same way,
-    // so the notch always lines up with the button regardless of screen width.
-    val navCradleShape = remember {
-        BottomNavCradleShape(
-            cornerRadius = 24.dp,
-            notchHalfWidth = 32.dp,
-            notchFlatHalfWidth = 16.dp,
-            notchDepth = 22.dp
-        )
-    }
     Box(
         modifier = modifier
             .fillMaxWidth()
-            // Respect gesture/3-button system navigation insets so the dock
-            // never sits under (or gets covered by) the system nav bar.
-            .navigationBarsPadding()
-            .padding(horizontal = 14.dp, vertical = 10.dp)
-            // No .clip() here on purpose: background/border are painted
-            // following the cradle shape's outline, but content (the Row,
-            // including the raised Add button) is left unclipped so the
-            // button can visually sit in the notch instead of being cut by it.
-            .background(GymColors.Bg.copy(alpha = 0.88f), navCradleShape)
-            .border(1.dp, GymColors.BorderSubtle, navCradleShape)
-            .padding(vertical = 10.dp)
+            .background(GymColors.Surface.copy(alpha = 0.95f))
+            .border(1.dp, GymColors.BorderSubtle, RoundedCornerShape(0.dp))
+            .padding(vertical = 8.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
             items.forEach { (screen, icon, label) ->
                 val active = current == screen
-                val isAdd = screen == Screen.Add
                 // Section 6: the selected pill, icon tint, and label color all
                 // ease into place instead of snapping — restrained, no bounce.
                 val pillAlpha by animateFloatAsState(
                     if (active) 0.18f else 0f, animationSpec = GymMotion.standardTween(), label = "navPillAlpha"
                 )
                 val tint by animateColorAsState(
-                    if (active) GymColors.AccentBright else GymColors.TextFaint, animationSpec = GymMotion.standardTween(), label = "navTint"
+                    if (active) GymColors.Accent else GymColors.TextFaint, animationSpec = GymMotion.standardTween(), label = "navTint"
                 )
-                // Fix: equal-width slots via weight(1f) instead of
-                // SpaceEvenly + ad hoc horizontal padding, so every icon sits
-                // perfectly centered in its own slot on any screen width and
-                // nothing gets clipped at the edges.
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier
-                        .weight(1f)
-                        .clip(GymShapes.md)
+                        .clip(RoundedCornerShape(12.dp))
                         .clickable { onSelect(screen) }
-                        .padding(vertical = 4.dp)
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
                 ) {
-                    if (isAdd) {
-                        // Elevated central floating action button, per the
-                        // Stitch dock spec — same Screen.Add destination.
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier
-                                .size(46.dp)
-                                .offset(y = (-10).dp)
-                                .neonGlow(GymColors.AccentBright, alpha = 0.45f, radius = 14.dp, shape = CircleShape)
-                                .clip(CircleShape)
-                                .background(GymColors.PrimaryGradient)
-                        ) {
-                            Icon(icon, contentDescription = label, tint = Color(0xFF06121A), modifier = Modifier.size(22.dp))
-                        }
-                    } else {
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier
-                                .clip(GymShapes.md)
-                                .background(GymColors.Accent.copy(alpha = pillAlpha))
-                                .padding(horizontal = 14.dp, vertical = 4.dp)
-                        ) {
-                            Icon(icon, contentDescription = label, tint = tint)
-                        }
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(GymColors.Accent.copy(alpha = pillAlpha))
+                            .padding(horizontal = 14.dp, vertical = 4.dp)
+                    ) {
+                        Icon(icon, contentDescription = label, tint = tint)
                     }
-                    // Text requirement: only "Add" keeps a visible label now.
-                    // The other four destinations stay icon-only — still
-                    // clearly identifiable by their existing icons, and their
-                    // content description keeps the label for accessibility.
-                    if (isAdd) {
-                        Spacer(Modifier.height(2.dp))
-                        Text(
-                            label,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = GymColors.AccentBright,
-                            fontFamily = GymFonts.Display
-                        )
-                    }
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        label,
+                        fontSize = 10.sp,
+                        fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
+                        color = tint
+                    )
                 }
             }
         }
@@ -338,7 +205,7 @@ fun BottomNav(current: Screen, modifier: Modifier = Modifier, onSelect: (Screen)
 @Composable
 fun LabeledField(label: String, content: @Composable () -> Unit) {
     Column(modifier = Modifier.padding(bottom = 14.dp)) {
-        Text(label.uppercase(), color = GymColors.Accent, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp, fontFamily = GymFonts.Display, modifier = Modifier.padding(bottom = 6.dp))
+        Text(label.uppercase(), color = GymColors.TextFaint, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp, modifier = Modifier.padding(bottom = 6.dp))
         content()
     }
 }
@@ -406,7 +273,7 @@ fun DatePickerField(date: LocalDate, onChange: (LocalDate) -> Unit) {
 
 @Composable
 @OptIn(ExperimentalFoundationApi::class)
-fun DashboardScreen(members: List<Member>, holdMembersCount: Int = 0, dueMembersCount: Int = 0, onNavigate: (Screen) -> Unit) {
+fun DashboardScreen(members: List<Member>, onNavigate: (Screen) -> Unit) {
     val active = members.count { statusOf(it.expiryMillis) == MemberStatus.ACTIVE }
     val expiring = members.count { statusOf(it.expiryMillis) == MemberStatus.EXPIRING }
     val expired = members.count { statusOf(it.expiryMillis) == MemberStatus.EXPIRED }
@@ -417,152 +284,60 @@ fun DashboardScreen(members: List<Member>, holdMembersCount: Int = 0, dueMembers
         }
         .sortedBy { it.expiryMillis }
 
-    // Features 3 & 4: privacy is a pure display preference (see
-    // DashboardPrivacyPrefs) - it never touches member data, membership
-    // status, Sync, Backup, fingerprint, or attendance. Read once per
-    // Dashboard entry so this screen's own rendering (blank privacy view,
-    // per-card number visibility) always reflects the latest saved choice -
-    // the ON/OFF controls themselves now live on the Sync page header (see
-    // SyncScreen), this screen only reads the resulting state.
-    val context = LocalContext.current
-    val privacyPrefs = remember { DashboardPrivacyPrefs(context) }
-    val masterPrivacyOn by remember { mutableStateOf(privacyPrefs.masterPrivacyOn) }
-    val totalVisible by remember { mutableStateOf(privacyPrefs.isNumberVisible(DashboardCard.TOTAL)) }
-    val activeVisible by remember { mutableStateOf(privacyPrefs.isNumberVisible(DashboardCard.ACTIVE)) }
-    val expiringVisible by remember { mutableStateOf(privacyPrefs.isNumberVisible(DashboardCard.EXPIRING)) }
-    val expiredVisible by remember { mutableStateOf(privacyPrefs.isNumberVisible(DashboardCard.EXPIRED)) }
-    val holdVisible by remember { mutableStateOf(privacyPrefs.isNumberVisible(DashboardCard.HOLD)) }
-    val dueVisible by remember { mutableStateOf(privacyPrefs.isNumberVisible(DashboardCard.DUE)) }
-
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
         contentPadding = PaddingValues(top = 20.dp, bottom = 90.dp)
     ) {
         item {
-            // Fix 1: Dashboard header shows only the "MAJOR GYM" title now -
-            // the dumbbell/gym logo box and the "Membership & Biometric
-            // Kiosk" subtitle have been removed. No replacement icon or
-            // subtitle was added; this is Dashboard-header-only and does not
-            // touch the launcher icon, splash branding, or any other icon
-            // elsewhere in the app.
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                GymScreenTitle("MAJOR GYM")
-                Spacer(Modifier.weight(1f))
-                // Relocation: the Dashboard number-visibility (gear) and
-                // Dashboard Privacy (eye) controls that used to sit here have
-                // moved to the Sync page header - same icons, same click
-                // handlers, same DashboardPrivacyPrefs storage, just a
-                // different screen. See SyncScreen.
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.clip(RoundedCornerShape(10.dp)).background(GymColors.Accent).padding(8.dp)) {
+                    Icon(Icons.Filled.FitnessCenter, null, tint = Color.Black, modifier = Modifier.size(20.dp))
+                }
+                Spacer(Modifier.width(10.dp))
+                Column {
+                    Text("MAJOR GYM", color = GymColors.Text, fontWeight = FontWeight.ExtraBold, fontSize = 22.sp, letterSpacing = 0.5.sp)
+                    Text("Membership & Biometric Kiosk", color = GymColors.TextMuted, fontSize = 12.sp)
+                }
             }
             Spacer(Modifier.height(16.dp))
         }
-        if (masterPrivacyOn) {
-            // Feature 4: master privacy is ON - nothing else on the Dashboard
-            // renders. No member counts, no Hold/Due rows, no attention list.
-            // This is purely visual: nothing is deleted, disabled, or changed -
-            // turning it back off (the eye icon, now on the Sync page header)
-            // instantly restores everything exactly as it was, including each
-            // card's own individual ON/OFF choice from Feature 3.
-            item {
-                Column(
-                    modifier = Modifier.fillMaxWidth().padding(top = 60.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Icon(Icons.Filled.VisibilityOff, contentDescription = null, tint = GymColors.TextFaint, modifier = Modifier.size(36.dp))
-                    Spacer(Modifier.height(10.dp))
-                    Text("Dashboard Privacy Mode is ON", color = GymColors.TextFaint, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                }
-            }
-        } else {
         item {
-            // Fix 2: Row height is driven by IntrinsicSize.Min and each
-            // StatCard fills that height, so both cards in a row always
-            // share the same height and the centering inside StatCard has
-            // real vertical room to work with (not just a wrap-content box).
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(bottom = 10.dp).height(IntrinsicSize.Min)) {
-                // Fix #1 / Feature 3: Total Members keeps its button/tap
-                // behavior (still opens the full member list) regardless -
-                // only whether the number itself is shown is now the
-                // owner's own per-card choice (see the settings gear above).
-                StatCard("Total Members", if (totalVisible) members.size.toString() else null, Modifier.weight(1f).fillMaxHeight()) { onNavigate(Screen.TotalMembers) }
-                StatCard("Active", if (activeVisible) active.toString() else null, Modifier.weight(1f).fillMaxHeight()) { onNavigate(Screen.ActiveMembers) }
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(bottom = 10.dp)) {
+                StatCard("Total Members", members.size.toString(), Modifier.weight(1f)) { onNavigate(Screen.TotalMembers) }
+                StatCard("Active", active.toString(), Modifier.weight(1f)) { onNavigate(Screen.ActiveMembers) }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(bottom = 14.dp).height(IntrinsicSize.Min)) {
-                StatCard("Expiring Soon", if (expiringVisible) expiring.toString() else null, Modifier.weight(1f).fillMaxHeight()) { onNavigate(Screen.ExpiringMembers) }
-                StatCard("Expired", if (expiredVisible) expired.toString() else null, Modifier.weight(1f).fillMaxHeight()) { onNavigate(Screen.ExpiredMembers) }
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(bottom = 14.dp)) {
+                StatCard("Expiring Soon", expiring.toString(), Modifier.weight(1f)) { onNavigate(Screen.ExpiringMembers) }
+                StatCard("Expired", expired.toString(), Modifier.weight(1f)) { onNavigate(Screen.ExpiredMembers) }
             }
         }
         item {
-            // Hold Members (fix #5): a separate entry point for members
-            // expired more than 2 months with no renewal - preserved in full,
-            // just hidden from the normal Members list/counts above.
+            Text("ATTENDANCE", color = GymColors.TextFaint, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp, modifier = Modifier.padding(bottom = 8.dp))
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(16.dp))
                     .background(GymColors.SurfaceCard)
                     .border(1.dp, GymColors.Border, RoundedCornerShape(16.dp))
-                    .clickable { onNavigate(Screen.HoldMembers) }
+                    .clickable { onNavigate(Screen.Attendance) }
                     .padding(16.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Box(
                     modifier = Modifier
                         .clip(RoundedCornerShape(12.dp))
-                        .background(GymColors.Warning.copy(alpha = 0.15f))
+                        .background(GymColors.Accent.copy(alpha = 0.15f))
                         .padding(10.dp)
                 ) {
-                    Icon(Icons.Filled.Pause, contentDescription = null, tint = GymColors.Warning, modifier = Modifier.size(22.dp))
+                    Icon(Icons.Filled.QrCodeScanner, contentDescription = null, tint = GymColors.Accent, modifier = Modifier.size(22.dp))
                 }
                 Spacer(Modifier.width(14.dp))
                 Column(Modifier.weight(1f)) {
-                    Text("Hold Members", color = GymColors.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    Text("Open Attendance Scanner", color = GymColors.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                     Text(
-                        "Expired 2+ months, not yet renewed",
+                        "Scan member QR codes and manage check-ins",
                         color = GymColors.TextFaint, fontSize = 12.sp, modifier = Modifier.padding(top = 2.dp)
                     )
-                }
-                if (holdVisible) {
-                    Text(holdMembersCount.toString(), color = GymColors.Warning, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                    Spacer(Modifier.width(8.dp))
-                }
-                Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = GymColors.TextFaint)
-            }
-            Spacer(Modifier.height(14.dp))
-        }
-        item {
-            // Feature 1: Due Members - a payment-status filter, independent
-            // of membership status. An ACTIVE member with a due amount still
-            // appears in Active/Total Members above as well as here.
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(GymColors.SurfaceCard)
-                    .border(1.dp, GymColors.Border, RoundedCornerShape(16.dp))
-                    .clickable { onNavigate(Screen.DueMembers) }
-                    .padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(GymColors.Danger.copy(alpha = 0.15f))
-                        .padding(10.dp)
-                ) {
-                    Icon(Icons.Filled.CurrencyRupee, contentDescription = null, tint = GymColors.Danger, modifier = Modifier.size(22.dp))
-                }
-                Spacer(Modifier.width(14.dp))
-                Column(Modifier.weight(1f)) {
-                    Text("Due Members", color = GymColors.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                    Text(
-                        "Members with an outstanding due amount",
-                        color = GymColors.TextFaint, fontSize = 12.sp, modifier = Modifier.padding(top = 2.dp)
-                    )
-                }
-                if (dueVisible) {
-                    Text(dueMembersCount.toString(), color = GymColors.Danger, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                    Spacer(Modifier.width(8.dp))
                 }
                 Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = GymColors.TextFaint)
             }
@@ -600,27 +375,6 @@ fun DashboardScreen(members: List<Member>, holdMembersCount: Int = 0, dueMembers
                 }
             }
         }
-        } // end of `else` (masterPrivacyOn == false) started above
-    }
-}
-
-/** One row of the Feature 3 settings dialog: a card's name plus its own
- *  independent ON/OFF [Switch] for whether its number is shown. Not private
- *  so SyncScreen (which now hosts the settings dialog that uses this, after
- *  the header-controls relocation) can reuse it as-is instead of duplicating it. */
-@Composable
-fun DashboardVisibilityRow(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Text(label, color = GymColors.Text, fontSize = 13.sp)
-        Switch(
-            checked = checked,
-            onCheckedChange = onCheckedChange,
-            colors = SwitchDefaults.colors(checkedThumbColor = GymColors.Accent, checkedTrackColor = GymColors.Accent.copy(alpha = 0.5f))
-        )
     }
 }
 
@@ -657,25 +411,21 @@ fun GymAttendanceQrCard() {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(GymShapes.lg)
-            .background(GymColors.CardGlassGradient)
-            .border(1.dp, GymColors.BorderGlowCyan, GymShapes.lg)
+            .clip(RoundedCornerShape(16.dp))
+            .background(GymColors.SurfaceCard)
+            .border(1.dp, GymColors.Border, RoundedCornerShape(16.dp))
             .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        GymSectionLabel("Gym Attendance QR", modifier = Modifier.align(Alignment.Start), color = GymColors.Accent)
+        Text("GYM ATTENDANCE QR", color = GymColors.Accent, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp, modifier = Modifier.align(Alignment.Start))
         Text(
             "Members scan this to check in \u2014 fixed, never changes",
             color = GymColors.TextFaint, fontSize = 11.sp, modifier = Modifier.align(Alignment.Start).padding(top = 2.dp, bottom = 12.dp)
         )
         Box(
             modifier = Modifier
-                .size(176.dp)
-                .neonGlow(GymColors.AccentBright, alpha = 0.32f, radius = 16.dp, shape = GymShapes.lg)
-                .clip(GymShapes.lg)
-                .background(GymColors.PrimaryGradient)
-                .padding(5.dp)
-                .clip(GymShapes.md)
+                .size(160.dp)
+                .clip(RoundedCornerShape(14.dp))
                 .background(Color.White)
                 .padding(10.dp)
                 .clickable { fullScreen = true },
@@ -726,12 +476,12 @@ fun GymAttendanceQrCard() {
 }
 
 @Composable
-fun StatCard(label: String, value: String?, modifier: Modifier = Modifier, onClick: (() -> Unit)? = null) {
+fun StatCard(label: String, value: String, modifier: Modifier = Modifier, onClick: (() -> Unit)? = null) {
     // Section 7: count up rather than instantly replacing the digits, but
     // only animate when the underlying number actually changed — a
     // non-numeric value (shouldn't happen here, but defensively) just
     // displays as-is instead of animating from 0.
-    val intValue = value?.toIntOrNull()
+    val intValue = value.toIntOrNull()
     val displayText = if (intValue != null) {
         val animated by animateIntAsState(
             targetValue = intValue,
@@ -745,17 +495,11 @@ fun StatCard(label: String, value: String?, modifier: Modifier = Modifier, onCli
     // restrained treatment as the primary CTA buttons — only when the card
     // is actually clickable.
     val cardInteractionSource = remember { MutableInteractionSource() }
-    // Fix 2: title + number are wrapped in a Box that fills the card and
-    // centers its content both horizontally and vertically (Alignment.Center
-    // on the Box, plus horizontalAlignment.CenterHorizontally on the inner
-    // Column so multi-line/short text stays centered too). Card dimensions,
-    // padding, shape, colors, font sizes/weights and the existing
-    // title-number spacing are all unchanged - only the alignment changed.
-    Box(
+    Column(
         modifier = modifier
-            .clip(GymShapes.lg)
-            .background(GymColors.CardGlassGradient)
-            .border(1.dp, GymColors.Border, GymShapes.lg)
+            .clip(RoundedCornerShape(16.dp))
+            .background(GymColors.SurfaceCard)
+            .border(1.dp, GymColors.Border, RoundedCornerShape(16.dp))
             .let {
                 if (onClick != null)
                     it.clickable(interactionSource = cardInteractionSource, indication = null) { onClick() }
@@ -763,19 +507,10 @@ fun StatCard(label: String, value: String?, modifier: Modifier = Modifier, onCli
                 else it
             }
             .padding(16.dp)
-            .fillMaxWidth(),
-        contentAlignment = Alignment.Center
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(label.uppercase(), color = GymColors.TextFaint, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.6.sp, fontFamily = GymFonts.Display, textAlign = TextAlign.Center)
-            // Fix #1 (Total Members): a null value means "don't show a count at
-            // all" - the card still renders (and is still tappable) with just
-            // its label, instead of a number row.
-            if (displayText != null) {
-                Spacer(Modifier.height(8.dp))
-                Text(displayText, color = GymColors.Accent, fontSize = 30.sp, fontWeight = FontWeight.ExtraBold, fontFamily = GymFonts.Display, textAlign = TextAlign.Center)
-            }
-        }
+        Text(label.uppercase(), color = GymColors.TextFaint, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
+        Spacer(Modifier.height(8.dp))
+        Text(displayText, color = GymColors.Accent, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
     }
 }
 
@@ -790,7 +525,7 @@ fun MembersScreen(members: List<Member>, onNavigate: (Screen) -> Unit) {
     }
 
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp).padding(top = 20.dp)) {
-        GymScreenTitle("MEMBERS")
+        Text("MEMBERS", color = GymColors.Text, fontWeight = FontWeight.ExtraBold, fontSize = 22.sp, letterSpacing = 0.5.sp)
         Spacer(Modifier.height(12.dp))
         OutlinedTextField(
             value = query,
@@ -819,15 +554,15 @@ fun MembersScreen(members: List<Member>, onNavigate: (Screen) -> Unit) {
  * and the exact same profile/renew navigation, instead of a second copy.
  */
 @Composable
-fun MemberRow(m: Member, onNavigate: (Screen) -> Unit, modifier: Modifier = Modifier, showDueAmount: Boolean = false) {
+fun MemberRow(m: Member, onNavigate: (Screen) -> Unit, modifier: Modifier = Modifier) {
     val status = statusOf(m.expiryMillis)
     Row(
         modifier = modifier
             .fillMaxWidth()
             .padding(bottom = 10.dp)
-            .clip(GymShapes.lg)
-            .background(GymColors.CardGlassGradient)
-            .border(1.dp, GymColors.Border, GymShapes.lg)
+            .clip(RoundedCornerShape(16.dp))
+            .background(GymColors.SurfaceCard)
+            .border(1.dp, GymColors.Border, RoundedCornerShape(16.dp))
             .padding(12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -841,12 +576,6 @@ fun MemberRow(m: Member, onNavigate: (Screen) -> Unit, modifier: Modifier = Modi
                 Text(m.name, color = GymColors.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                 Text("${m.phone} \u00B7 ${m.plan}", color = GymColors.TextMuted, fontSize = 12.sp)
                 Text("Expires ${formatDate(m.expiryMillis)}", color = GymColors.TextFaint, fontSize = 11.sp)
-                // Feature 1 (Due Members): only shown on the Due Members list -
-                // other lists (Active/Expiring/Expired/Total) stay exactly as
-                // they were, per "use the existing Member UI wherever possible."
-                if (showDueAmount && m.fee > 0.0) {
-                    Text("Due: ${formatMoney(m.fee)}", color = GymColors.Danger, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                }
             }
         }
         Column(horizontalAlignment = Alignment.End) {
@@ -854,13 +583,13 @@ fun MemberRow(m: Member, onNavigate: (Screen) -> Unit, modifier: Modifier = Modi
             Spacer(Modifier.height(8.dp))
             Box(
                 modifier = Modifier
-                    .clip(GymShapes.pill)
+                    .clip(RoundedCornerShape(20.dp))
                     .background(GymColors.Accent.copy(alpha = 0.15f))
-                    .border(1.dp, GymColors.Accent.copy(alpha = 0.45f), GymShapes.pill)
+                    .border(1.dp, GymColors.Accent.copy(alpha = 0.4f), RoundedCornerShape(20.dp))
                     .clickable { onNavigate(Screen.Renew(m.id)) }
                     .padding(horizontal = 12.dp, vertical = 5.dp)
             ) {
-                Text("Renew", color = GymColors.Accent, fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = GymFonts.Display)
+                Text("Renew", color = GymColors.Accent, fontSize = 11.sp, fontWeight = FontWeight.Bold)
             }
         }
     }
@@ -933,8 +662,7 @@ fun AddEditMemberScreen(vm: MembersViewModel, existing: Member?, onNavigate: (Sc
 
     val months = PLAN_MONTHS[plan] ?: 1L
     val expiryMillis = addMonthsMillis(joined.toMillis(), months)
-    // Fix #2: Due Amount is optional - no longer part of the validity gate.
-    val valid = name.trim().length >= 3 && phone.length >= 10 && !phoneTaken
+    val valid = name.trim().length >= 3 && phone.length >= 10 && fee.toDoubleOrNull() != null && !phoneTaken
 
     Column(
         modifier = Modifier
@@ -947,9 +675,7 @@ fun AddEditMemberScreen(vm: MembersViewModel, existing: Member?, onNavigate: (Sc
             .imePadding()
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 16.dp)
-            // Fix: reserved bottom space increased so the Add/Save button is
-            // never left underneath the floating bottom nav dock.
-            .padding(top = 20.dp, bottom = 140.dp)
+            .padding(top = 20.dp, bottom = 90.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(
@@ -957,56 +683,30 @@ fun AddEditMemberScreen(vm: MembersViewModel, existing: Member?, onNavigate: (Sc
                 modifier = Modifier.clickable { onNavigate(existing?.let { Screen.Profile(it.id) } ?: Screen.Members) }
             )
             Spacer(Modifier.width(10.dp))
-            Text(
-                if (existing == null) "ADD MEMBER" else "EDIT MEMBER",
-                color = GymColors.Text, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, letterSpacing = 0.5.sp,
-                fontFamily = GymFonts.Display
-            )
+            Text(if (existing == null) "ADD MEMBER" else "EDIT MEMBER", color = GymColors.Text, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, letterSpacing = 0.5.sp)
         }
         Spacer(Modifier.height(20.dp))
 
-        GymSectionLabel("Enrollment Telemetry", modifier = Modifier.align(Alignment.CenterHorizontally))
-        Spacer(Modifier.height(10.dp))
-
         Box(
             modifier = Modifier
-                .size(104.dp)
+                .size(96.dp)
                 .align(Alignment.CenterHorizontally)
-                .neonGlow(GymColors.AccentBright, alpha = 0.30f, radius = 14.dp, shape = CircleShape),
+                .clip(CircleShape)
+                .background(GymColors.SurfaceCard)
+                .border(2.dp, GymColors.Accent, CircleShape)
+                .clickable { showPhotoSourceSheet = true },
             contentAlignment = Alignment.Center
         ) {
-            Box(
-                modifier = Modifier
-                    .size(96.dp)
-                    .clip(CircleShape)
-                    .background(GymColors.SurfaceCard)
-                    .border(2.dp, GymColors.AccentBright, CircleShape)
-                    .clickable { showPhotoSourceSheet = true },
-                contentAlignment = Alignment.Center
-            ) {
-                val p = photoPath
-                if (p != null && File(p).exists()) {
-                    AsyncImage(model = File(p), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().clip(CircleShape))
-                } else {
-                    Icon(Icons.Filled.CameraAlt, contentDescription = null, tint = GymColors.Accent, modifier = Modifier.size(32.dp))
-                }
-            }
-            // Small camera badge, matching the Stitch "BIO-CAM" capsule accent.
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .size(28.dp)
-                    .clip(CircleShape)
-                    .background(GymColors.PrimaryGradient)
-                    .clickable { showPhotoSourceSheet = true },
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(Icons.Filled.PhotoCamera, contentDescription = null, tint = Color(0xFF06121A), modifier = Modifier.size(15.dp))
+            val p = photoPath
+            if (p != null && File(p).exists()) {
+                AsyncImage(model = File(p), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().clip(CircleShape))
+            } else {
+                Icon(Icons.Filled.CameraAlt, contentDescription = null, tint = GymColors.Accent, modifier = Modifier.size(32.dp))
             }
         }
         Text(
-            "Profile Photo \u00B7 Face Recognition Ready", color = GymColors.TextFaint, fontSize = 11.sp,
-            modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 10.dp, bottom = 20.dp)
+            "Tap to add photo", color = GymColors.TextFaint, fontSize = 11.sp,
+            modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 8.dp, bottom = 20.dp)
         )
 
         LabeledField("Full Name") {
@@ -1078,67 +778,76 @@ fun AddEditMemberScreen(vm: MembersViewModel, existing: Member?, onNavigate: (Sc
                     }
                 }
             } else {
-                Box(
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(96.dp)
-                        .clip(GymShapes.md)
-                        .background(GymColors.Bg)
-                        .border(1.dp, GymColors.BorderSubtle, GymShapes.md)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(GymColors.SurfaceCard)
+                        .border(1.dp, GymColors.Border, RoundedCornerShape(12.dp))
                         .clickable { showIdPhotoSourceSheet = true }
+                        .padding(18.dp)
                 ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.align(Alignment.Center)
-                    ) {
-                        Icon(Icons.Filled.Badge, null, tint = GymColors.Violet, modifier = Modifier.size(26.dp))
-                        Spacer(Modifier.height(6.dp))
-                        Text("Tap to add ID Proof Photo", color = GymColors.TextMuted, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-                    }
+                    Icon(Icons.Filled.CameraAlt, null, tint = GymColors.Accent, modifier = Modifier.size(22.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Icon(Icons.Filled.Description, null, tint = GymColors.Accent, modifier = Modifier.size(22.dp))
+                    Spacer(Modifier.width(12.dp))
+                    Text("Tap to add ID Proof Photo", color = GymColors.TextMuted, fontSize = 13.sp)
                 }
             }
         }
 
-        // Fix #3: Passkey generation/hashing/storage is untouched (see
-        // `passkey` above and `passwordHash = PasskeyUtils.hash(passkey)`
-        // below) - only this owner-facing UI field is removed. The passkey
-        // itself still exists internally and is still sent to the member via
-        // WhatsApp after saving (see RegistrationSuccessScreen/WhatsAppShare),
-        // it's simply never shown on any screen anymore.
+        if (existing == null) {
+            LabeledField("Passkey") {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                    OutlinedTextField(
+                        value = passkey, onValueChange = {}, readOnly = true,
+                        modifier = Modifier.weight(1f), singleLine = true, shape = RoundedCornerShape(10.dp), colors = gymFieldColors()
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Icon(
+                        Icons.Filled.Refresh, contentDescription = "Regenerate", tint = GymColors.Accent,
+                        modifier = Modifier.clickable { passkey = PasskeyUtils.generate() }
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    Icon(
+                        Icons.Filled.ContentCopy, contentDescription = "Copy", tint = GymColors.Accent,
+                        modifier = Modifier.clickable {
+                            val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            cm.setPrimaryClip(ClipData.newPlainText("Passkey", passkey))
+                            Toast.makeText(context, "Passkey copied", Toast.LENGTH_SHORT).show()
+                        }
+                    )
+                }
+                Text(
+                    "Shown only once. It will be sent to the member via WhatsApp after saving.",
+                    color = GymColors.TextFaint, fontSize = 10.sp, modifier = Modifier.padding(top = 4.dp)
+                )
+            }
+        }
         LabeledField("Joining Date") { DatePickerField(joined) { joined = it } }
         LabeledField("Membership Plan") { PlanGrid(plan) { plan = it } }
-        // Fix #2: renamed from "Fee" to "Due Amount" and made optional - the
-        // owner must be able to add a member without entering one at all.
-        LabeledField("Due Amount (\u20B9) (Optional)") {
+        LabeledField("Fee (\u20B9)") {
             OutlinedTextField(
                 value = fee,
                 onValueChange = { fee = it.filter { c -> c.isDigit() } },
-                placeholder = { Text("Enter Due Amount (Optional)", color = GymColors.TextFaint) },
                 modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(10.dp), colors = gymFieldColors()
             )
         }
 
         Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth().clip(GymShapes.md).background(GymColors.Success.copy(alpha = 0.14f)).border(1.dp, GymColors.Success.copy(alpha = 0.35f), GymShapes.md).padding(14.dp)
+            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(GymColors.Success.copy(alpha = 0.14f)).border(1.dp, GymColors.Success.copy(alpha = 0.3f), RoundedCornerShape(12.dp)).padding(14.dp),
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Icon(Icons.Filled.Schedule, null, tint = GymColors.Success, modifier = Modifier.size(16.dp))
-            Spacer(Modifier.width(8.dp))
-            Column(Modifier.weight(1f)) {
-                GymSectionLabel("Calculated expiry projection", color = GymColors.Success.copy(alpha = 0.8f))
-                Text(formatDate(expiryMillis), color = GymColors.Success, fontWeight = FontWeight.Bold, fontSize = 15.sp, fontFamily = GymFonts.Display)
-            }
+            Text("Auto-calculated expiry", color = GymColors.Success, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+            Text(formatDate(expiryMillis), color = GymColors.Success, fontWeight = FontWeight.Bold, fontSize = 13.sp)
         }
         Spacer(Modifier.height(20.dp))
 
-        PrimaryButton(
-            text = if (existing == null) "Add Member" else "Save Changes",
-            enabled = valid,
-            icon = Icons.Filled.PersonAddAlt,
+        val saveInteractionSource = remember { MutableInteractionSource() }
+        Button(
             onClick = {
-                // Fix #2: Due Amount is optional - blank/invalid input just
-                // means "no due amount entered", not a save failure.
-                val feeVal = fee.toDoubleOrNull() ?: 0.0
+                val feeVal = fee.toDouble()
                 val history = if (existing == null)
                     listOf(HistoryEntry("Joined", plan, feeVal, joined.toMillis(), expiryMillis))
                 else existing.historyJson.toHistoryList()
@@ -1162,16 +871,19 @@ fun AddEditMemberScreen(vm: MembersViewModel, existing: Member?, onNavigate: (Sc
                     // edited. Carry the existing template forward untouched; it is only
                     // ever changed via the dedicated enroll/replace/remove fingerprint
                     // actions (see MembersViewModel.saveFingerprintTemplate / removeFingerprintTemplate).
-                    fingerprintTemplate = existing?.fingerprintTemplate,
-                    // A Hold member being edited (not renewed) stays on Hold -
-                    // only the explicit Renew flow (see RenewScreen) or the
-                    // daily lifecycle worker moves them back to normal.
-                    membershipState = existing?.membershipState ?: MembershipState.ACTIVE
+                    fingerprintTemplate = existing?.fingerprintTemplate
                 )
                 vm.save(member)
                 if (existing == null) onNavigate(Screen.Registered(id, passkey)) else onNavigate(Screen.Profile(id))
-            }
-        )
+            },
+            enabled = valid,
+            colors = ButtonDefaults.buttonColors(containerColor = GymColors.Accent, disabledContainerColor = GymColors.SurfaceCard),
+            shape = RoundedCornerShape(12.dp),
+            interactionSource = saveInteractionSource,
+            modifier = Modifier.fillMaxWidth().height(50.dp).gymPressScale(saveInteractionSource)
+        ) {
+            Text(if (existing == null) "Add Member" else "Save Changes", fontWeight = FontWeight.Bold, color = if (valid) Color.Black else GymColors.TextFaint, fontSize = 15.sp)
+        }
     }
 
     if (showPhotoSourceSheet) {
@@ -1292,11 +1004,6 @@ fun ProfileScreen(member: Member, vm: MembersViewModel, onNavigate: (Screen) -> 
     val days = daysBetweenNow(member.expiryMillis)
     val history = remember(member.historyJson) { member.historyJson.toHistoryList().reversed() }
     val lastRenewedMillis = remember(history) { history.firstOrNull { it.type == "Renewed" }?.dateMillis }
-    // Feature 1 (Due Members / Due Payment): local state for the "Amount
-    // Paid" field, keyed to this member so switching to a different
-    // member's profile always starts with a clean, empty field.
-    var amountPaidText by remember(member.id) { mutableStateOf("") }
-    var paymentError by remember(member.id) { mutableStateOf<String?>(null) }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
@@ -1306,7 +1013,7 @@ fun ProfileScreen(member: Member, vm: MembersViewModel, onNavigate: (Screen) -> 
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 16.dp)) {
                 Icon(Icons.Filled.ArrowBack, null, tint = GymColors.Text, modifier = Modifier.clickable { onNavigate(Screen.Members) })
                 Spacer(Modifier.width(10.dp))
-                Text("MEMBER PROFILE", color = GymColors.Text, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, letterSpacing = 0.5.sp, fontFamily = GymFonts.Display)
+                Text("MEMBER PROFILE", color = GymColors.Text, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, letterSpacing = 0.5.sp)
             }
             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
                 Box(modifier = Modifier.clickable { showPhoto = true }) {
@@ -1336,72 +1043,9 @@ fun ProfileScreen(member: Member, vm: MembersViewModel, onNavigate: (Screen) -> 
                     ProfileRow(Icons.Filled.Refresh, "Renewed", formatDate(lastRenewedMillis))
                 }
                 ProfileRow(Icons.Filled.CalendarToday, "Expires", formatDate(member.expiryMillis))
-                ProfileRow(Icons.Filled.CurrencyRupee, "Current Plan", member.plan)
-                // Feature 1: Due Amount shown separately from the plan now
-                // that it has its own payment flow below (still the same
-                // underlying Member.fee field, so nothing else changes).
-                ProfileRow(
-                    Icons.Filled.CurrencyRupee, "Due Amount", formatMoney(member.fee),
-                    valueColor = if (member.fee > 0.0) GymColors.Danger else GymColors.Success
-                )
+                ProfileRow(Icons.Filled.CurrencyRupee, "Current Plan", "${member.plan} \u00B7 ${formatMoney(member.fee)}")
                 ProfileRow(Icons.Filled.Badge, "ID Proof", member.idProof.ifBlank { "Not Provided" })
                 ProfileRow(Icons.Filled.Fingerprint, "Fingerprint", if (member.fingerprintTemplate != null) "Enrolled" else "Not Enrolled", last = true)
-            }
-            // Feature 1: Due Payment - only shown while there's actually
-            // something due, so it naturally disappears the moment the due
-            // amount reaches zero (paid in full), without needing any other
-            // screen change. Never touches membership status, plan, expiry,
-            // or history - purely adjusts the due balance.
-            if (member.fee > 0.0) {
-                Spacer(Modifier.height(14.dp))
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(GymColors.SurfaceCard)
-                        .border(1.dp, GymColors.Border, RoundedCornerShape(16.dp))
-                        .padding(16.dp)
-                ) {
-                    Text("DUE PAYMENT", color = GymColors.TextFaint, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
-                    Spacer(Modifier.height(10.dp))
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("Due Amount", color = GymColors.TextMuted, fontSize = 13.sp)
-                        Text(formatMoney(member.fee), color = GymColors.Danger, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                    }
-                    Spacer(Modifier.height(12.dp))
-                    LabeledField("Amount Paid (\u20B9)") {
-                        OutlinedTextField(
-                            value = amountPaidText,
-                            onValueChange = { amountPaidText = it.filter { c -> c.isDigit() }; paymentError = null },
-                            placeholder = { Text("Enter amount being paid now", color = GymColors.TextFaint) },
-                            modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(10.dp), colors = gymFieldColors()
-                        )
-                    }
-                    if (paymentError != null) {
-                        Text(paymentError!!, color = GymColors.Danger, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
-                    }
-                    Spacer(Modifier.height(12.dp))
-                    PrimaryButton(
-                        text = "Save Payment",
-                        onClick = {
-                            val paid = amountPaidText.toDoubleOrNull() ?: 0.0
-                            when {
-                                paid <= 0.0 -> paymentError = "Enter an amount to record a payment."
-                                // Overpayment protection: never allow a negative
-                                // due amount to be stored - block the entry with
-                                // a clear message instead of silently capping it,
-                                // so the owner notices and can correct it.
-                                paid > member.fee -> paymentError = "Amount paid cannot exceed the due amount (${formatMoney(member.fee)})."
-                                else -> {
-                                    val newDue = (member.fee - paid).coerceAtLeast(0.0)
-                                    vm.save(member.copy(fee = newDue, updatedAtMillis = System.currentTimeMillis()))
-                                    amountPaidText = ""
-                                    paymentError = null
-                                }
-                            }
-                        }
-                    )
-                }
             }
             Spacer(Modifier.height(14.dp))
             Card(
@@ -1536,32 +1180,30 @@ fun ProfileScreen(member: Member, vm: MembersViewModel, onNavigate: (Screen) -> 
 }
 
 @Composable
-fun ProfileRow(icon: ImageVector, label: String, value: String, last: Boolean = false, valueColor: Color = GymColors.Text) {
+fun ProfileRow(icon: ImageVector, label: String, value: String, last: Boolean = false) {
     Row(modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
         Icon(icon, null, tint = GymColors.Accent, modifier = Modifier.size(18.dp))
         Spacer(Modifier.width(12.dp))
         Text(label, color = GymColors.TextFaint, fontSize = 13.sp, modifier = Modifier.weight(1f))
-        Text(value, color = valueColor, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        Text(value, color = GymColors.Text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
     }
     if (!last) Divider(color = GymColors.BorderSubtle, thickness = 1.dp)
 }
 
 @Composable
 fun ActionButton(icon: ImageVector, label: String, color: Color, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    val interaction = remember { MutableInteractionSource() }
     Column(
         modifier = modifier
-            .gymPressScale(interaction)
-            .clip(GymShapes.md)
-            .background(color.copy(alpha = 0.10f))
-            .border(1.dp, color.copy(alpha = 0.35f), GymShapes.md)
-            .clickable(interactionSource = interaction, indication = null) { onClick() }
+            .clip(RoundedCornerShape(12.dp))
+            .background(GymColors.SurfaceCard)
+            .border(1.dp, GymColors.Border, RoundedCornerShape(12.dp))
+            .clickable { onClick() }
             .padding(vertical = 14.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Icon(icon, null, tint = color, modifier = Modifier.size(20.dp))
         Spacer(Modifier.height(4.dp))
-        Text(label, color = color, fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = GymFonts.Display)
+        Text(label, color = color, fontSize = 11.sp, fontWeight = FontWeight.Medium)
     }
 }
 
@@ -1572,50 +1214,25 @@ fun RenewScreen(member: Member, vm: MembersViewModel, onNavigate: (Screen) -> Un
     var plan by remember { mutableStateOf(member.plan) }
     var fee by remember { mutableStateOf(member.fee.toInt().toString()) }
     val today = LocalDate.now().toMillis()
-    // Feature 2: the owner can now pick any date the renewed membership
-    // should start from, instead of it always being forced to today/the
-    // current expiry. Defaults to exactly the same date the old hardcoded
-    // logic used to compute automatically (today, or the current expiry if
-    // it's still in the future) - so a renewal where the owner never
-    // touches this field behaves identically to before.
-    var startDate by remember { mutableStateOf((if (member.expiryMillis > today) member.expiryMillis else today).toLocalDate()) }
+    val base = if (member.expiryMillis > today) member.expiryMillis else today
     val months = PLAN_MONTHS[plan] ?: 1L
-    val newExpiry = addMonthsMillis(startDate.toMillis(), months)
+    val newExpiry = addMonthsMillis(base, months)
 
-    // Fix (per request): Renew screen made scrollable the same way Add/Edit
-    // Member already is, with imePadding for the Fee field's keyboard and
-    // enough reserved bottom space that Confirm Renewal is never hidden
-    // behind the floating bottom nav dock.
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .imePadding()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp)
-            .padding(top = 20.dp, bottom = 140.dp)
-    ) {
+    Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp).padding(top = 20.dp, bottom = 90.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 16.dp)) {
             Icon(Icons.Filled.ArrowBack, null, tint = GymColors.Text, modifier = Modifier.clickable { onNavigate(Screen.Profile(member.id)) })
             Spacer(Modifier.width(10.dp))
-            Text("RENEW MEMBERSHIP", color = GymColors.Text, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, letterSpacing = 0.5.sp, fontFamily = GymFonts.Display)
+            Text("RENEW MEMBERSHIP", color = GymColors.Text, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, letterSpacing = 0.5.sp)
         }
-        FuturisticCard(modifier = Modifier.fillMaxWidth().padding(bottom = 20.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                StatusRing(member.photoPath, member.name, statusOf(member.expiryMillis), 52.dp)
-                Spacer(Modifier.width(12.dp))
-                Column {
-                    Text(member.name, color = GymColors.Text, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                    GymSectionLabel("Current membership")
-                    Text("Expires ${formatDate(member.expiryMillis)}", color = GymColors.TextMuted, fontSize = 12.sp)
-                }
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 20.dp)) {
+            StatusRing(member.photoPath, member.name, statusOf(member.expiryMillis), 52.dp)
+            Spacer(Modifier.width(12.dp))
+            Column {
+                Text(member.name, color = GymColors.Text, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                Text("Current expiry: ${formatDate(member.expiryMillis)}", color = GymColors.TextMuted, fontSize = 12.sp)
             }
         }
         LabeledField("Renewal Plan") { PlanGrid(plan) { plan = it } }
-        // Feature 2: Select Start Date - the new expiry below is always
-        // computed from this date + the selected plan's duration, and this
-        // exact date is what actually gets saved as this renewal cycle's
-        // start (see the Save button below) - not just shown on screen.
-        LabeledField("Select Start Date") { DatePickerField(startDate) { startDate = it } }
         LabeledField("Fee (\u20B9)") {
             OutlinedTextField(
                 value = fee,
@@ -1624,47 +1241,35 @@ fun RenewScreen(member: Member, vm: MembersViewModel, onNavigate: (Screen) -> Un
             )
         }
         Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth().clip(GymShapes.md).background(GymColors.Success.copy(alpha = 0.14f)).border(1.dp, GymColors.Success.copy(alpha = 0.35f), GymShapes.md).padding(14.dp)
+            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(GymColors.Success.copy(alpha = 0.14f)).border(1.dp, GymColors.Success.copy(alpha = 0.3f), RoundedCornerShape(12.dp)).padding(14.dp),
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Icon(Icons.Filled.EventAvailable, null, tint = GymColors.Success, modifier = Modifier.size(16.dp))
-            Spacer(Modifier.width(8.dp))
-            Column(Modifier.weight(1f)) {
-                GymSectionLabel("New expiry date", color = GymColors.Success.copy(alpha = 0.8f))
-                Text(formatDate(newExpiry), color = GymColors.Success, fontWeight = FontWeight.Bold, fontSize = 15.sp, fontFamily = GymFonts.Display)
-            }
+            Text("New expiry date", color = GymColors.Success, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+            Text(formatDate(newExpiry), color = GymColors.Success, fontWeight = FontWeight.Bold, fontSize = 13.sp)
         }
         Spacer(Modifier.height(20.dp))
-        PrimaryButton(
-            text = "Confirm Renewal",
-            icon = Icons.Filled.Refresh,
+        val renewInteractionSource = remember { MutableInteractionSource() }
+        Button(
             onClick = {
                 val feeVal = fee.toDoubleOrNull() ?: 0.0
-                // Feature 2: the history entry's date is the selected start
-                // date (not "whenever the Save button happened to be
-                // tapped") - this is what ProfileScreen's "Renewed" row and
-                // the History list both read back, so the chosen date is
-                // genuinely part of the member's saved membership data, not
-                // just a number shown once on this screen.
-                val newHistory = member.historyJson.toHistoryList() + HistoryEntry("Renewed", plan, feeVal, startDate.toMillis(), newExpiry)
+                val newHistory = member.historyJson.toHistoryList() + HistoryEntry("Renewed", plan, feeVal, System.currentTimeMillis(), newExpiry)
                 vm.save(
                     member.copy(
                         plan = plan, fee = feeVal, expiryMillis = newExpiry, historyJson = newHistory.toJson(),
                         updatedAtMillis = System.currentTimeMillis(),
                         qrToken = QrUtils.freshToken(),
-                        qrTokenExpiryMillis = System.currentTimeMillis() + QrUtils.TOKEN_VALIDITY_MILLIS,
-                        // Fix #6: a Hold member renewing returns straight to
-                        // the normal Members list - same Member ID, no
-                        // duplication, fingerprint becomes searchable again
-                        // immediately (see FingerprintKioskService's cache
-                        // filter, which re-includes them the instant this
-                        // becomes ACTIVE).
-                        membershipState = MembershipState.ACTIVE
+                        qrTokenExpiryMillis = System.currentTimeMillis() + QrUtils.TOKEN_VALIDITY_MILLIS
                     )
                 )
                 onNavigate(Screen.Renewed(member.id, justRenewed = true))
-            }
-        )
+            },
+            colors = ButtonDefaults.buttonColors(containerColor = GymColors.Accent),
+            shape = RoundedCornerShape(12.dp),
+            interactionSource = renewInteractionSource,
+            modifier = Modifier.fillMaxWidth().height(50.dp).gymPressScale(renewInteractionSource)
+        ) {
+            Text("Confirm Renewal", fontWeight = FontWeight.Bold, color = Color.Black, fontSize = 15.sp)
+        }
     }
 }
 
@@ -1692,18 +1297,8 @@ fun RenewalSuccessScreen(member: Member, justRenewed: Boolean = false, onNavigat
         showActions = true
     }
 
-    // Fix 4: added verticalScroll so the Done button can never end up hidden
-    // below the visible screen area on shorter devices. verticalArrangement =
-    // Center is kept - combined with fillMaxSize, content shorter than the
-    // screen still renders centered exactly as before, while content taller
-    // than the screen (small devices/large font settings) becomes scrollable
-    // so Done is always reachable.
-    val scrollState = rememberScrollState()
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(scrollState)
-            .padding(24.dp),
+        modifier = Modifier.fillMaxSize().padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
@@ -1716,7 +1311,7 @@ fun RenewalSuccessScreen(member: Member, justRenewed: Boolean = false, onNavigat
         Spacer(Modifier.height(12.dp))
         AnimatedVisibility(visible = showMessage, enter = fadeIn(GymMotion.standardTween()) + expandVertically(GymMotion.standardTween())) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(if (justRenewed) "MEMBERSHIP RENEWED" else "QR UPDATED", color = GymColors.Text, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, letterSpacing = 0.5.sp, fontFamily = GymFonts.Display)
+                Text(if (justRenewed) "MEMBERSHIP RENEWED" else "QR UPDATED", color = GymColors.Text, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, letterSpacing = 0.5.sp)
                 Text(member.name, color = GymColors.TextMuted, fontSize = 14.sp, modifier = Modifier.padding(top = 4.dp))
             }
         }
@@ -1729,14 +1324,10 @@ fun RenewalSuccessScreen(member: Member, justRenewed: Boolean = false, onNavigat
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Box(
                     modifier = Modifier
-                        .size(232.dp)
-                        .neonGlow(GymColors.AccentBright, alpha = 0.30f, radius = 16.dp, shape = GymShapes.lg)
-                        .clip(GymShapes.lg)
-                        .background(GymColors.PrimaryGradient)
-                        .padding(6.dp)
-                        .clip(GymShapes.md)
+                        .size(220.dp)
+                        .clip(RoundedCornerShape(16.dp))
                         .background(Color.White)
-                        .padding(14.dp),
+                        .padding(16.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Image(bitmap = qrBitmap.asImageBitmap(), contentDescription = "Member QR code")
@@ -1757,15 +1348,35 @@ fun RenewalSuccessScreen(member: Member, justRenewed: Boolean = false, onNavigat
 
         AnimatedVisibility(visible = showActions, enter = fadeIn(GymMotion.standardTween()) + expandVertically(GymMotion.standardTween())) {
             if (justRenewed) {
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    PrimaryButton(text = "Share Renewal Update", icon = Icons.Filled.Share, onClick = { WhatsAppShare.shareRenewal(context, member) })
+                Column {
+                    Button(
+                        onClick = { WhatsAppShare.shareRenewal(context, member) },
+                        colors = ButtonDefaults.buttonColors(containerColor = GymColors.Accent),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth().height(50.dp)
+                    ) {
+                        Icon(Icons.Filled.Share, contentDescription = null, tint = Color.Black)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Share Renewal Update", fontWeight = FontWeight.Bold, color = Color.Black, fontSize = 15.sp)
+                    }
                     Spacer(Modifier.height(12.dp))
-                    TextButton(onClick = { onNavigate(Screen.Profile(member.id)) }, modifier = Modifier.fillMaxWidth()) {
+                    OutlinedButton(
+                        onClick = { onNavigate(Screen.Profile(member.id)) },
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth().height(50.dp)
+                    ) {
                         Text("Done", color = GymColors.Text)
                     }
                 }
             } else {
-                PrimaryButton(text = "Done", onClick = { onNavigate(Screen.Profile(member.id)) })
+                Button(
+                    onClick = { onNavigate(Screen.Profile(member.id)) },
+                    colors = ButtonDefaults.buttonColors(containerColor = GymColors.Accent),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth().height(50.dp)
+                ) {
+                    Text("Done", fontWeight = FontWeight.Bold, color = Color.Black, fontSize = 15.sp)
+                }
             }
         }
     }
@@ -1841,87 +1452,64 @@ fun BackupScreen(vm: MembersViewModel, onNavigate: (Screen) -> Unit) {
             .padding(16.dp)
             .padding(top = 20.dp, bottom = 90.dp)
     ) {
-        GymScreenTitle("BACKUP & RESTORE")
+        Text("BACKUP & RESTORE", color = GymColors.Text, fontWeight = FontWeight.ExtraBold, fontSize = 22.sp, letterSpacing = 0.5.sp)
         Spacer(Modifier.height(20.dp))
 
-        // Fix #8: Attendance Scanner access moved here from the Dashboard -
-        // same GymAttendanceQrCard-backed AttendanceScreen as before, nothing
-        // about the scanner itself changed, only where it's reached from.
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .neonGlow(GymColors.AccentBright, alpha = 0.20f, shape = GymShapes.lg)
-                .clip(GymShapes.lg)
-                .background(GymColors.CardGlassGradient)
-                .border(1.dp, GymColors.BorderGlowCyan, GymShapes.lg)
-                .clickable { onNavigate(Screen.Attendance) }
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
+        Card(
+            colors = CardDefaults.cardColors(containerColor = GymColors.SurfaceCard),
+            shape = RoundedCornerShape(16.dp),
+            modifier = Modifier.fillMaxWidth().border(1.dp, GymColors.Border, RoundedCornerShape(16.dp))
         ) {
-            Box(
-                modifier = Modifier
-                    .clip(GymShapes.md)
-                    .background(GymColors.PrimaryGradient)
-                    .padding(10.dp)
-            ) {
-                Icon(Icons.Filled.QrCodeScanner, contentDescription = null, tint = Color(0xFF06121A), modifier = Modifier.size(22.dp))
-            }
-            Spacer(Modifier.width(14.dp))
-            Column(Modifier.weight(1f)) {
-                Text("Open Attendance Scanner", color = GymColors.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                Text(
-                    "Scan member QR codes and manage check-ins",
-                    color = GymColors.TextFaint, fontSize = 12.sp, modifier = Modifier.padding(top = 2.dp)
-                )
-            }
-            Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = GymColors.TextFaint)
-        }
-        Spacer(Modifier.height(14.dp))
-
-        FuturisticCard(modifier = Modifier.fillMaxWidth()) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Filled.Download, null, tint = GymColors.Accent, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("Export All Records", color = GymColors.Text, fontWeight = FontWeight.Bold)
-            }
-            Spacer(Modifier.height(12.dp))
-            val exportInteractionSource = remember { MutableInteractionSource() }
-            Row(
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(44.dp)
-                    .gymPressScale(exportInteractionSource)
-                    .clip(GymShapes.md)
-                    .background(if (!exporting) GymColors.PrimaryGradient else Brush.linearGradient(listOf(GymColors.Surface3, GymColors.Surface3)))
-                    .clickable(interactionSource = exportInteractionSource, indication = null, enabled = !exporting) {
+            Column(Modifier.padding(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.Download, null, tint = GymColors.Accent, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Export All Records", color = GymColors.Text, fontWeight = FontWeight.Bold)
+                }
+                Spacer(Modifier.height(12.dp))
+                val exportInteractionSource = remember { MutableInteractionSource() }
+                Button(
+                    onClick = {
                         val label = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd_HHmm"))
                         createDoc.launch("MajorGym_Backup_$label.zip")
+                    },
+                    enabled = !exporting,
+                    colors = ButtonDefaults.buttonColors(containerColor = GymColors.Accent, disabledContainerColor = GymColors.Surface2),
+                    shape = RoundedCornerShape(10.dp),
+                    interactionSource = exportInteractionSource,
+                    modifier = Modifier.fillMaxWidth().height(44.dp).gymPressScale(exportInteractionSource)
+                ) {
+                    AnimatedContent(
+                        targetState = exporting,
+                        transitionSpec = { fadeIn(GymMotion.standardTween()) togetherWith fadeOut(GymMotion.fastTween()) },
+                        label = "exportBackupContent"
+                    ) { isExporting ->
+                        Text(if (isExporting) "Exporting\u2026" else "Export Backup", fontWeight = FontWeight.Bold, color = Color.Black)
                     }
-            ) {
-                AnimatedContent(
-                    targetState = exporting,
-                    transitionSpec = { fadeIn(GymMotion.standardTween()) togetherWith fadeOut(GymMotion.fastTween()) },
-                    label = "exportBackupContent"
-                ) { isExporting ->
-                    Text(if (isExporting) "Exporting\u2026" else "Export Backup", fontWeight = FontWeight.Bold, color = Color(0xFF06121A), fontFamily = GymFonts.Display)
                 }
             }
         }
         Spacer(Modifier.height(14.dp))
-        FuturisticCard(modifier = Modifier.fillMaxWidth()) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Filled.Upload, null, tint = GymColors.Accent, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("Restore Records", color = GymColors.Text, fontWeight = FontWeight.Bold)
+        Card(
+            colors = CardDefaults.cardColors(containerColor = GymColors.SurfaceCard),
+            shape = RoundedCornerShape(16.dp),
+            modifier = Modifier.fillMaxWidth().border(1.dp, GymColors.Border, RoundedCornerShape(16.dp))
+        ) {
+            Column(Modifier.padding(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.Upload, null, tint = GymColors.Accent, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Restore Records", color = GymColors.Text, fontWeight = FontWeight.Bold)
+                }
+                Spacer(Modifier.height(12.dp))
+                OutlinedButton(
+                    onClick = { openDoc.launch(arrayOf("application/zip", "application/json", "application/octet-stream")) },
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.fillMaxWidth().height(44.dp)
+                ) {
+                    Text("Choose Backup File", color = GymColors.Text, fontWeight = FontWeight.SemiBold)
+                }
             }
-            Spacer(Modifier.height(12.dp))
-            SecondaryButton(
-                text = "Choose Backup File",
-                modifier = Modifier.height(44.dp),
-                onClick = { openDoc.launch(arrayOf("application/zip", "application/json", "application/octet-stream")) }
-            )
         }
         message?.let {
             Spacer(Modifier.height(16.dp))
@@ -1934,37 +1522,34 @@ fun BackupScreen(vm: MembersViewModel, onNavigate: (Screen) -> Unit) {
         }
 
         Spacer(Modifier.height(14.dp))
-        FuturisticCard(modifier = Modifier.fillMaxWidth()) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Filled.Share, null, tint = GymColors.Accent, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("Share Backup File", color = GymColors.Text, fontWeight = FontWeight.Bold)
-            }
-            Spacer(Modifier.height(10.dp))
-
-            if (latestBackup != null) {
-                val f = latestBackup!!
-                Column(modifier = Modifier.fillMaxWidth().clip(GymShapes.sm).background(GymColors.Surface2).padding(10.dp)) {
-                    Text(f.name, color = GymColors.Text, fontSize = 11.sp, fontWeight = FontWeight.Medium)
-                    Text(
-                        "${formatBackupSize(f.length())} \u00B7 ${formatDate(f.lastModified())} \u00B7 ${formatTimeOfDay(f.lastModified())}",
-                        color = GymColors.TextFaint, fontSize = 10.sp, modifier = Modifier.padding(top = 2.dp)
-                    )
+        Card(
+            colors = CardDefaults.cardColors(containerColor = GymColors.SurfaceCard),
+            shape = RoundedCornerShape(16.dp),
+            modifier = Modifier.fillMaxWidth().border(1.dp, GymColors.Border, RoundedCornerShape(16.dp))
+        ) {
+            Column(Modifier.padding(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.Share, null, tint = GymColors.Accent, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Share Backup File", color = GymColors.Text, fontWeight = FontWeight.Bold)
                 }
                 Spacer(Modifier.height(10.dp))
-            }
 
-            val shareInteractionSource = remember { MutableInteractionSource() }
-            Row(
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(44.dp)
-                    .gymPressScale(shareInteractionSource)
-                    .clip(GymShapes.md)
-                    .background(if (!sharing) GymColors.PrimaryGradient else Brush.linearGradient(listOf(GymColors.Surface3, GymColors.Surface3)))
-                    .clickable(interactionSource = shareInteractionSource, indication = null, enabled = !sharing) {
+                if (latestBackup != null) {
+                    val f = latestBackup!!
+                    Column(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(GymColors.Surface2).padding(10.dp)) {
+                        Text(f.name, color = GymColors.Text, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                        Text(
+                            "${formatBackupSize(f.length())} \u00B7 ${formatDate(f.lastModified())} \u00B7 ${formatTimeOfDay(f.lastModified())}",
+                            color = GymColors.TextFaint, fontSize = 10.sp, modifier = Modifier.padding(top = 2.dp)
+                        )
+                    }
+                    Spacer(Modifier.height(10.dp))
+                }
+
+                val shareInteractionSource = remember { MutableInteractionSource() }
+                Button(
+                    onClick = {
                         sharing = true
                         shareMessage = if (latestBackup == null) "No backup found. Creating a backup\u2026" else null
                         vm.getOrCreateLatestBackup { file ->
@@ -1977,28 +1562,41 @@ fun BackupScreen(vm: MembersViewModel, onNavigate: (Screen) -> Unit) {
                                 shareMessage = "Unable to create backup."
                             }
                         }
+                    },
+                    enabled = !sharing,
+                    colors = ButtonDefaults.buttonColors(containerColor = GymColors.Accent, disabledContainerColor = GymColors.Surface2),
+                    shape = RoundedCornerShape(10.dp),
+                    interactionSource = shareInteractionSource,
+                    modifier = Modifier.fillMaxWidth().height(44.dp).gymPressScale(shareInteractionSource)
+                ) {
+                    // Section 16: idle -> working label swap communicated with a
+                    // short cross-fade rather than an instant text replace.
+                    AnimatedContent(
+                        targetState = sharing,
+                        transitionSpec = { fadeIn(GymMotion.standardTween()) togetherWith fadeOut(GymMotion.fastTween()) },
+                        label = "shareBackupContent"
+                    ) { isSharing ->
+                        Text(if (isSharing) "Preparing\u2026" else "Share Backup", fontWeight = FontWeight.Bold, color = Color.Black)
                     }
-            ) {
-                // Section 16: idle -> working label swap communicated with a
-                // short cross-fade rather than an instant text replace.
-                AnimatedContent(
-                    targetState = sharing,
-                    transitionSpec = { fadeIn(GymMotion.standardTween()) togetherWith fadeOut(GymMotion.fastTween()) },
-                    label = "shareBackupContent"
-                ) { isSharing ->
-                    Text(if (isSharing) "Preparing\u2026" else "Share Backup", fontWeight = FontWeight.Bold, color = Color(0xFF06121A), fontFamily = GymFonts.Display)
                 }
-            }
 
-            shareMessage?.let {
-                Text(it, color = GymColors.TextMuted, fontSize = 11.sp, modifier = Modifier.padding(top = 8.dp))
+                shareMessage?.let {
+                    Text(it, color = GymColors.TextMuted, fontSize = 11.sp, modifier = Modifier.padding(top = 8.dp))
+                }
             }
         }
 
         Spacer(Modifier.height(14.dp))
-        FuturisticCard(modifier = Modifier.fillMaxWidth(), contentPadding = PaddingValues(0.dp), onClick = { onNavigate(Screen.BackupHistory) }) {
+        Card(
+            colors = CardDefaults.cardColors(containerColor = GymColors.SurfaceCard),
+            shape = RoundedCornerShape(16.dp),
+            modifier = Modifier.fillMaxWidth().border(1.dp, GymColors.Border, RoundedCornerShape(16.dp))
+        ) {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onNavigate(Screen.BackupHistory) }
+                    .padding(16.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -2032,10 +1630,10 @@ fun BackupHistoryScreen(vm: MembersViewModel, onNavigate: (Screen) -> Unit) {
                 modifier = Modifier.clickable { onNavigate(Screen.Backup) }
             )
             Spacer(Modifier.width(12.dp))
-            Text("BACKUP HISTORY", color = GymColors.Text, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, letterSpacing = 0.5.sp, fontFamily = GymFonts.Display)
+            Text("BACKUP HISTORY", color = GymColors.Text, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, letterSpacing = 0.5.sp)
         }
         if (entries.isEmpty()) {
-            GymEmptyState("No backups taken yet.")
+            Text("No backups taken yet.", color = GymColors.TextFaint, fontSize = 13.sp)
         } else {
             LazyColumn(contentPadding = PaddingValues(bottom = 90.dp)) {
                 items(entries) { millis ->
@@ -2043,18 +1641,14 @@ fun BackupHistoryScreen(vm: MembersViewModel, onNavigate: (Screen) -> Unit) {
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(bottom = 8.dp)
-                            .clip(GymShapes.md)
+                            .clip(RoundedCornerShape(12.dp))
                             .background(GymColors.SurfaceCard)
-                            .border(1.dp, GymColors.Border, GymShapes.md)
+                            .border(1.dp, GymColors.Border, RoundedCornerShape(12.dp))
                             .padding(horizontal = 14.dp, vertical = 12.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Filled.History, null, tint = GymColors.Accent, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text(formatDate(millis), color = GymColors.Text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                        }
+                        Text(formatDate(millis), color = GymColors.Text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
                         Text(formatTimeOfDay(millis), color = GymColors.TextMuted, fontSize = 13.sp)
                     }
                 }

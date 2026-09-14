@@ -120,7 +120,7 @@ fun AttendanceLogsScreen(members: List<Member>, vm: MembersViewModel, onNavigate
         item {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    GymScreenTitle("ATTENDANCE LOGS")
+                    Text("ATTENDANCE LOGS", color = GymColors.Text, fontWeight = FontWeight.ExtraBold, fontSize = 22.sp, letterSpacing = 0.5.sp)
                     val todaySuffix = if (selectedDate == LocalDate.now()) " (Today)" else ""
                     Text(
                         "\uD83D\uDCC5 ${formatDate(selectedDate.toMillis())}$todaySuffix",
@@ -238,9 +238,9 @@ private fun AttendanceRecordCard(record: AttendanceRecord, member: Member, onCli
         modifier = Modifier
             .fillMaxWidth()
             .padding(bottom = 10.dp)
-            .clip(GymShapes.lg)
-            .background(GymColors.CardGlassGradient)
-            .border(1.dp, GymColors.Border, GymShapes.lg)
+            .clip(RoundedCornerShape(16.dp))
+            .background(GymColors.SurfaceCard)
+            .border(1.dp, GymColors.Border, RoundedCornerShape(16.dp))
             .clickable(onClick = onClick)
             .padding(12.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -315,13 +315,16 @@ fun AttendanceHistoryScreen(memberId: String, members: List<Member>, vm: Members
             )
             Spacer(Modifier.width(12.dp))
             Column {
-                Text(member?.name ?: "Attendance History", color = GymColors.Text, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, fontFamily = GymFonts.Display)
+                Text(member?.name ?: "Attendance History", color = GymColors.Text, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp)
                 if (member != null) {
                     Text(member.phone, color = GymColors.TextMuted, fontSize = 13.sp)
                 }
             }
         }
-        GymSectionLabel("Attendance History", modifier = Modifier.padding(top = 8.dp, bottom = 8.dp))
+        Text(
+            "ATTENDANCE HISTORY", color = GymColors.TextFaint, fontSize = 11.sp, fontWeight = FontWeight.Bold,
+            letterSpacing = 0.5.sp, modifier = Modifier.padding(top = 8.dp, bottom = 8.dp)
+        )
         if (byMonth.isEmpty()) {
             Text("No attendance recorded yet.", color = GymColors.TextFaint, fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp))
         }
@@ -340,9 +343,9 @@ fun AttendanceHistoryScreen(memberId: String, members: List<Member>, vm: Members
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(bottom = 8.dp)
-                            .clip(GymShapes.md)
+                            .clip(RoundedCornerShape(12.dp))
                             .background(GymColors.SurfaceCard)
-                            .border(1.dp, GymColors.Border, GymShapes.md)
+                            .border(1.dp, GymColors.Border, RoundedCornerShape(12.dp))
                             .padding(horizontal = 14.dp, vertical = 12.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
