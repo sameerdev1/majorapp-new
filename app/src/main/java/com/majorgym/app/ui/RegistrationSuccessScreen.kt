@@ -77,7 +77,7 @@ fun RegistrationSuccessScreen(member: Member, passkey: String, onNavigate: (Scre
         Spacer(Modifier.height(12.dp))
         AnimatedVisibility(visible = showMessage, enter = fadeIn(GymMotion.standardTween()) + expandVertically(GymMotion.standardTween())) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("MEMBER REGISTERED", color = GymColors.Text, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, letterSpacing = 0.5.sp)
+                Text("MEMBERSHIP ACTIVATED", color = GymColors.Text, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, letterSpacing = 0.5.sp, fontFamily = GymFonts.Display)
                 Text(member.name, color = GymColors.TextMuted, fontSize = 15.sp, modifier = Modifier.padding(top = 4.dp), fontWeight = FontWeight.Medium)
             }
         }
@@ -90,10 +90,14 @@ fun RegistrationSuccessScreen(member: Member, passkey: String, onNavigate: (Scre
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Box(
                     modifier = Modifier
-                        .size(220.dp)
-                        .clip(RoundedCornerShape(16.dp))
+                        .size(232.dp)
+                        .neonGlow(GymColors.AccentBright, alpha = 0.30f, radius = 16.dp, shape = GymShapes.lg)
+                        .clip(GymShapes.lg)
+                        .background(GymColors.PrimaryGradient)
+                        .padding(6.dp)
+                        .clip(GymShapes.md)
                         .background(Color.White)
-                        .padding(16.dp),
+                        .padding(14.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Image(bitmap = qrBitmap.asImageBitmap(), contentDescription = "Member QR code")
@@ -109,33 +113,16 @@ fun RegistrationSuccessScreen(member: Member, passkey: String, onNavigate: (Scre
         Spacer(Modifier.height(28.dp))
 
         AnimatedVisibility(visible = showActions, enter = fadeIn(GymMotion.standardTween()) + expandVertically(GymMotion.standardTween())) {
-            Column {
-                Button(
-                    onClick = { WhatsAppShare.share(context, member, passkey) },
-                    colors = ButtonDefaults.buttonColors(containerColor = GymColors.Accent),
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.fillMaxWidth().height(50.dp)
-                ) {
-                    Icon(Icons.Filled.Share, contentDescription = null, tint = Color.Black)
-                    Spacer(Modifier.width(8.dp))
-                    Text("Share Welcome Message", fontWeight = FontWeight.Bold, color = Color.Black, fontSize = 15.sp)
-                }
+            Column(modifier = Modifier.fillMaxWidth()) {
+                PrimaryButton(text = "Share Welcome Message", icon = Icons.Filled.Share, onClick = { WhatsAppShare.share(context, member, passkey) })
                 Spacer(Modifier.height(12.dp))
-                OutlinedButton(
-                    onClick = { onNavigate(Screen.EnrollFingerprint(member.id, returnTo = Screen.Profile(member.id))) },
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.fillMaxWidth().height(50.dp)
-                ) {
-                    Icon(Icons.Filled.Fingerprint, contentDescription = null, tint = GymColors.Accent)
-                    Spacer(Modifier.width(8.dp))
-                    Text("Enroll Fingerprint Now", color = GymColors.Text, fontWeight = FontWeight.SemiBold)
-                }
+                SecondaryButton(
+                    text = "Enroll Fingerprint Now",
+                    icon = Icons.Filled.Fingerprint,
+                    onClick = { onNavigate(Screen.EnrollFingerprint(member.id, returnTo = Screen.Profile(member.id))) }
+                )
                 Spacer(Modifier.height(12.dp))
-                OutlinedButton(
-                    onClick = { onNavigate(Screen.Profile(member.id)) },
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.fillMaxWidth().height(50.dp)
-                ) {
+                TextButton(onClick = { onNavigate(Screen.Profile(member.id)) }, modifier = Modifier.fillMaxWidth()) {
                     Text("Done", color = GymColors.TextMuted, fontWeight = FontWeight.Medium)
                 }
             }

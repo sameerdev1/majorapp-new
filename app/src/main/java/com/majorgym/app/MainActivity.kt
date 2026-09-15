@@ -19,6 +19,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -29,12 +31,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.core.content.ContextCompat
 import com.majorgym.app.data.AttendanceRetentionWorker
-import com.majorgym.app.data.MembershipCleanupWorker
 import com.majorgym.app.ui.*
 
 class MainActivity : ComponentActivity() {
@@ -42,21 +45,20 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // Feature 4: schedules (or confirms already-scheduled) the daily
-        // long-expired-account cleanup check. Cheap/safe to call on every
-        // launch — WorkManager's KEEP policy no-ops if it's already scheduled,
-        // so this never creates duplicate jobs or resets the run cadence.
-        MembershipCleanupWorker.schedule(applicationContext)
         // Change 1: schedules the daily attendance-retention cleanup
-        // (deletes attendance older than 4 months). Separate worker, own
-        // unique work name — does not touch MembershipCleanupWorker's
-        // timing/conditions at all.
+        // (deletes attendance older than 4 months). Own unique work name —
+        // independent of any other scheduled work.
         AttendanceRetentionWorker.schedule(applicationContext)
         setContent {
             MajorGymTheme {
                 var showSplash by remember { mutableStateOf(true) }
                 var screen by remember { mutableStateOf<Screen>(Screen.Dashboard) }
                 val members by vm.members.collectAsState()
+                // Feature 1 (Due Members): a payment-status filter, NOT a
+                // membership-status replacement - a member can be both
+                // Active and Due at once, so this deliberately overlaps with
+                // the normal members list rather than excluding from it.
+                val dueMembers = remember(members) { members.filter { it.fee > 0.0 } }
 
                 // Section 24: lightweight reduced-motion support — reads the
                 // OS-level "Remove animations" developer/accessibility setting
@@ -114,17 +116,33 @@ class MainActivity : ComponentActivity() {
                     members = members,
                     paused = kioskPaused
                 )
-                // Surface is transparent so the background image behind it shows through
-                // on every screen; a dark scrim keeps text/cards readable over the photo.
+                // Section 7 (Biometric Core OS visual language): the app's
+                // backdrop is now a deep-navy atmosphere with two soft,
+                // restrained glow fields (cyan + violet) instead of a
+                // photographic background + dark scrim — purely a visual
+                // change, nothing here affects any screen's content or logic.
                 Surface(modifier = Modifier.fillMaxSize(), color = Color.Transparent) {
-                    Box(Modifier.fillMaxSize()) {
-                        Image(
-                            painter = painterResource(R.drawable.bg_gym),
-                            contentDescription = null,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize()
+                    Box(Modifier.fillMaxSize().background(GymColors.Bg)) {
+                        Box(
+                            modifier = Modifier
+                                .size(420.dp)
+                                .align(Alignment.TopEnd)
+                                .offset(x = 140.dp, y = (-120).dp)
+                                .background(
+                                    Brush.radialGradient(colors = listOf(Color(0x3300F0FF), Color(0x0000F0FF))),
+                                    shape = androidx.compose.foundation.shape.CircleShape
+                                )
                         )
-                        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.55f)))
+                        Box(
+                            modifier = Modifier
+                                .size(460.dp)
+                                .align(Alignment.BottomStart)
+                                .offset(x = (-150).dp, y = 140.dp)
+                                .background(
+                                    Brush.radialGradient(colors = listOf(Color(0x2E8B5CF6), Color(0x008B5CF6))),
+                                    shape = androidx.compose.foundation.shape.CircleShape
+                                )
+                        )
 
                         // Priority 1: purely visual fade + slight horizontal-movement
                         // transition between screens. This is layered on top of the
@@ -148,7 +166,7 @@ class MainActivity : ComponentActivity() {
                             label = "screenTransition"
                         ) { targetScreen ->
                             when (val s = targetScreen) {
-                                Screen.Dashboard -> DashboardScreen(members) { screen = it }
+                                Screen.Dashboard -> DashboardScreen(members, dueMembers.size) { screen = it }
                                 Screen.Members -> MembersScreen(members) { screen = it }
                                 Screen.Add -> AddEditMemberScreen(vm, null) { screen = it }
                                 is Screen.Edit -> {
@@ -191,6 +209,10 @@ class MainActivity : ComponentActivity() {
                                     "Expired Members",
                                     members.filter { com.majorgym.app.data.statusOf(it.expiryMillis) == com.majorgym.app.data.MemberStatus.EXPIRED },
                                     showSearch = false, emptyText = "No expired members."
+                                ) { screen = it }
+                                Screen.DueMembers -> FilteredMembersScreen(
+                                    "Due Members", dueMembers, showSearch = true,
+                                    emptyText = "No members with a due amount.", showDueAmount = true
                                 ) { screen = it }
                                 Screen.Attendance -> AttendanceScreen { screen = it }
                                 Screen.AttendanceLogs -> AttendanceLogsScreen(members, vm) { screen = it }

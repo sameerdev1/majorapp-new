@@ -58,9 +58,11 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
-        /** Add-on: auto-delete safeguard for long-expired accounts (Feature 4). NULL
-         *  means "not currently pending deletion" — see Member.pendingDeletionMillis
-         *  and MembershipCleanupWorker. */
+        /** Formerly the flag for an auto-delete safeguard on long-expired
+         *  accounts; that automatic deletion has since been removed entirely.
+         *  Column is kept only for backward-compatible reads of old rows/
+         *  backups/synced data — nothing sets or reads it as a signal anymore,
+         *  see Member.pendingDeletionMillis. */
         private val MIGRATION_6_7 = object : Migration(6, 7) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE members ADD COLUMN pendingDeletionMillis INTEGER")
