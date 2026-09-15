@@ -141,8 +141,11 @@ abstract class AppDatabase : RoomDatabase() {
         /** Device Sync fixes #1-#3: the change/event log Sync now replicates
          *  instead of comparing whole-record snapshots - see
          *  [SyncChangeLogEntry]'s class doc for why. A brand-new, empty table;
-         *  existing Members/Attendance rows are untouched and simply have no
-         *  history yet (their next edit on each device starts building it). */
+         *  existing Members/Attendance rows are left untouched here and simply
+         *  have no history yet - see [Repository.backfillPreSyncHistoryIfNeeded]
+         *  (called at the start of every sync) for how they're given a
+         *  synthetic initial ADD entry so they still reach a peer that has
+         *  never synced with this device before. */
         private val MIGRATION_10_11 = object : Migration(10, 11) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL(

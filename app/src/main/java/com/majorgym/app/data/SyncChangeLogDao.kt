@@ -49,4 +49,25 @@ interface SyncChangeLogDao {
             "ORDER BY timestampMillis ASC, originDeviceId ASC, seq ASC"
     )
     suspend fun getForRecord(entityType: String, recordId: String): List<SyncChangeLogEntry>
+
+    /** Every Member row that has no OP_ADD change-log entry at all yet - i.e.
+     *  a record that predates the change-log system (see
+     *  [Repository.backfillPreSyncHistoryIfNeeded]) and would otherwise be
+     *  invisible to [versionVectorRaw]/[Repository.changesMissingForPeer] and
+     *  so never reach a peer that has never synced with this device before. */
+    @Query(
+        "SELECT m.id FROM members m WHERE NOT EXISTS (" +
+            "SELECT 1 FROM sync_change_log s WHERE s.entityType = 'MEMBER' AND s.operation = 'ADD' AND s.recordId = m.id" +
+            ")"
+    )
+    suspend fun memberIdsMissingAddHistory(): List<String>
+
+    /** Same as [memberIdsMissingAddHistory], for attendance rows keyed by
+     *  their stable [AttendanceRecord.globalId]. */
+    @Query(
+        "SELECT a.globalId FROM attendance_records a WHERE NOT EXISTS (" +
+            "SELECT 1 FROM sync_change_log s WHERE s.entityType = 'ATTENDANCE' AND s.operation = 'ADD' AND s.recordId = a.globalId" +
+            ")"
+    )
+    suspend fun attendanceIdsMissingAddHistory(): List<String>
 }
