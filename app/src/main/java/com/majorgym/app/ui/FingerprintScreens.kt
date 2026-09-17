@@ -21,6 +21,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -274,23 +276,37 @@ fun EnrollFingerprintScreen(member: Member, vm: MembersViewModel, returnTo: Scre
         }
     }
 
-    Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
+    // Fix (spec: fingerprint success screen scrolling / Done button): the
+    // whole screen now scrolls, with bottom content padding that clears the
+    // floating bottom nav dock, so the Done/Cancel button and the rest of
+    // the content can never end up hidden behind it. weight(1f) can't be
+    // used inside a scrollable Column (it needs a bounded height), so the
+    // middle section below now just flows normally instead of being forced
+    // to fill/center in the remaining space — visually identical on screens
+    // where everything already fit.
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .imePadding()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp)
+            .padding(bottom = 140.dp)
+    ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(top = 20.dp, bottom = 16.dp)
         ) {
             Icon(Icons.Filled.ArrowBack, null, tint = GymColors.Text, modifier = Modifier.clickable { onNavigate(returnTo) })
             Spacer(Modifier.width(10.dp))
-            Text("ENROLL FINGERPRINT", color = GymColors.Text, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, letterSpacing = 0.5.sp)
+            Text("ENROLL FINGERPRINT", color = GymColors.Text, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, letterSpacing = 0.5.sp, fontFamily = GymFonts.Display)
         }
 
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .weight(1f)
                 .padding(vertical = 12.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+            verticalArrangement = Arrangement.Top
         ) {
             Text(member.name, color = GymColors.Text, fontSize = 18.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(24.dp))
@@ -347,9 +363,10 @@ fun EnrollFingerprintScreen(member: Member, vm: MembersViewModel, returnTo: Scre
                     modifier = Modifier
                         .graphicsLayer { translationX = shakeOffset.value }
                         .size(130.dp)
+                        .neonGlow(if (done) GymColors.Success else GymColors.AccentBright, alpha = 0.32f, radius = 16.dp, shape = CircleShape)
                         .clip(CircleShape)
-                        .background(if (done) GymColors.Accent else GymColors.SurfaceCard)
-                        .border(2.dp, if (done) GymColors.Accent else GymColors.Border, CircleShape)
+                        .background(if (done) GymColors.SuccessGradient else GymColors.PrimaryGradient)
+                        .border(2.dp, if (done) GymColors.Success else GymColors.AccentBright, CircleShape)
                         .clickable(enabled = !done && !scanInFlight) { runScan() },
                     contentAlignment = Alignment.Center
                 ) {
@@ -364,42 +381,40 @@ fun EnrollFingerprintScreen(member: Member, vm: MembersViewModel, returnTo: Scre
                         Icon(
                             if (isDone) Icons.Filled.CheckCircle else Icons.Filled.Fingerprint,
                             null,
-                            tint = if (isDone) Color.Black else GymColors.Accent,
+                            tint = Color(0xFF06121A),
                             modifier = Modifier.size(64.dp)
                         )
                     }
                 }
             }
             Spacer(Modifier.height(24.dp))
-            Text(
-                if (done) "Fingerprint enrolled successfully" else statusText(status, detail),
-                color = GymColors.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold
-            )
+            AnimatedContent(
+                targetState = if (done) "Fingerprint enrolled successfully" else statusText(status, detail),
+                transitionSpec = { fadeIn(GymMotion.standardTween()) togetherWith fadeOut(GymMotion.fastTween()) },
+                label = "fingerprintStatusText"
+            ) { message ->
+                Text(message, color = GymColors.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+            }
             if (!done && detail.isNotBlank() && status != ScanStatus.FAILED) {
                 Spacer(Modifier.height(6.dp))
                 Text(detail, color = GymColors.TextMuted, fontSize = 13.sp)
             }
             if (!done) {
                 Spacer(Modifier.height(28.dp))
-                Button(
-                    onClick = { runScan() },
+                PrimaryButton(
+                    text = if (firstScan == null) "Start Scan" else "Scan Again to Confirm",
                     enabled = !scanInFlight,
-                    colors = ButtonDefaults.buttonColors(containerColor = GymColors.Accent),
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.height(48.dp)
-                ) {
-                    Text(if (firstScan == null) "Start Scan" else "Scan Again to Confirm", fontWeight = FontWeight.Bold, color = Color.Black)
-                }
+                    icon = Icons.Filled.Fingerprint,
+                    modifier = Modifier.fillMaxWidth(0.8f),
+                    onClick = { runScan() }
+                )
             }
         }
 
-        Button(
-            onClick = { onNavigate(returnTo) },
-            modifier = Modifier.fillMaxWidth().height(50.dp).padding(bottom = 16.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = if (done) GymColors.Accent else GymColors.SurfaceCard),
-            shape = RoundedCornerShape(12.dp)
-        ) {
-            Text(if (done) "Done" else "Cancel", color = if (done) Color.Black else GymColors.TextMuted, fontWeight = FontWeight.Bold)
+        if (done) {
+            PrimaryButton(text = "Done", modifier = Modifier.padding(bottom = 16.dp), onClick = { onNavigate(returnTo) })
+        } else {
+            SecondaryButton(text = "Cancel", modifier = Modifier.padding(bottom = 16.dp), onClick = { onNavigate(returnTo) })
         }
     }
 }

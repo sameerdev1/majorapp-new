@@ -37,6 +37,15 @@ class SyncPrefs(context: Context) {
         get() = prefs.getString(KEY_SYNC_CODE, null)
         set(value) = prefs.edit().putString(KEY_SYNC_CODE, value).apply()
 
+    /** One-time completion flag for [Repository.backfillPreSyncHistoryIfNeeded] -
+     *  once every pre-existing Member/Attendance record on this device has a
+     *  synthetic initial ADD change-log entry, there's nothing left to check
+     *  for, so later launches/syncs can skip the lookup entirely instead of
+     *  re-scanning the members/attendance tables every time. */
+    var hasBackfilledSyncHistory: Boolean
+        get() = prefs.getBoolean(KEY_BACKFILLED_SYNC_HISTORY, false)
+        set(value) = prefs.edit().putBoolean(KEY_BACKFILLED_SYNC_HISTORY, value).apply()
+
     fun pairedDevices(): List<PairedDevice> {
         val raw = prefs.getString(KEY_PAIRED, null) ?: return emptyList()
         val arr = JSONArray(raw)
@@ -70,5 +79,6 @@ class SyncPrefs(context: Context) {
         private const val KEY_DEVICE_NAME = "device_name"
         private const val KEY_SYNC_CODE = "sync_code"
         private const val KEY_PAIRED = "paired_devices"
+        private const val KEY_BACKFILLED_SYNC_HISTORY = "backfilled_sync_history"
     }
 }

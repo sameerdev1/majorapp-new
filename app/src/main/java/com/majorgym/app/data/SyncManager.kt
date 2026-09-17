@@ -74,6 +74,13 @@ class SyncManager(
         timeoutMs: Long = 20_000,
         onStatus: (String) -> Unit
     ): SyncOutcome = withContext(Dispatchers.IO) {
+        // Root-cause fix: gives any pre-existing Member/AttendanceRecord that
+        // predates the change-log system a synthetic initial ADD entry
+        // before this device's version vector is computed below - see
+        // Repository.backfillPreSyncHistoryIfNeeded's doc for why this is
+        // required for a fresh peer device to ever receive them.
+        repository.backfillPreSyncHistoryIfNeeded()
+
         val code = prefs.syncCode
         if (code.isNullOrBlank()) return@withContext SyncOutcome.NoCodeSet
         val codeHash = sha256(code)

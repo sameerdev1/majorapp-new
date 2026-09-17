@@ -147,6 +147,92 @@ class Repository(private val context: Context) {
         changeLogDao.getAllOnce().filter { it.seq > (peerVector[it.originDeviceId] ?: 0L) }
 
     /**
+     * Root-cause fix: [SyncChangeLogEntry] rows only exist for changes made
+     * *after* the change-log system was introduced (see AppDatabase's
+     * MIGRATION_10_11 doc) - a Member/AttendanceRecord that already existed
+     * before that has no ADD entry, so [localVersionVector] never advertises
+     * it and [changesMissingForPeer] never sends it, no matter how many
+     * times sync runs. A brand-new device therefore never receives it.
+     *
+     * Called once, at the start of every [SyncManager.runSync] (before this
+     * device's version vector is computed/sent), this gives every such
+     * record a synthetic initial OP_ADD entry - a full snapshot via the same
+     * [SyncChangeCodec.encodeMember]/attendance-fields format a real ADD
+     * already uses - under THIS device's own stable [SyncPrefs.deviceId], so
+     * it becomes an ordinary syncable record exactly as if it had just been
+     * added. Nothing about the record itself (its id, its fields, its files)
+     * is touched - this only adds history that was missing, using
+     * monotonically increasing seq values continuing from wherever this
+     * device's own counter already was, so no (originDeviceId, seq) pair is
+     * ever duplicated.
+     *
+     * Idempotent and safe to call every time: [SyncChangeLogDao.memberIdsMissingAddHistory]/
+     * [SyncChangeLogDao.attendanceIdsMissingAddHistory] only ever return records that
+     * genuinely still lack an ADD entry, so a record backfilled on a previous
+     * call (or one that already had real history) is never touched again.
+     * Gated behind [SyncPrefs.hasBackfilledSyncHistory] once every record is
+     * covered, so a device with nothing left to backfill isn't stuck
+     * re-scanning the members/attendance tables on every sync forever.
+     */
+    suspend fun backfillPreSyncHistoryIfNeeded() {
+        if (syncPrefs.hasBackfilledSyncHistory) return
+        changeLogMutex.withLock {
+            val deviceId = syncPrefs.deviceId
+            var seq = changeLogDao.maxSeqFor(deviceId) ?: 0L
+            val newEntries = mutableListOf<SyncChangeLogEntry>()
+
+            val missingMemberIds = changeLogDao.memberIdsMissingAddHistory()
+            if (missingMemberIds.isNotEmpty()) {
+                val byId = allOnce().associateBy { it.id }
+                missingMemberIds.forEach { id ->
+                    val m = byId[id] ?: return@forEach
+                    seq += 1
+                    newEntries += SyncChangeLogEntry(
+                        changeId = UUID.randomUUID().toString(),
+                        entityType = ENTITY_MEMBER,
+                        recordId = m.id,
+                        operation = OP_ADD,
+                        originDeviceId = deviceId,
+                        seq = seq,
+                        timestampMillis = m.updatedAtMillis.takeIf { it > 0 }
+                            ?: m.createdAtMillis.takeIf { it > 0 }
+                            ?: System.currentTimeMillis(),
+                        fieldsJson = SyncChangeCodec.encodeMember(m).toString()
+                    )
+                }
+            }
+
+            val missingAttendanceIds = changeLogDao.attendanceIdsMissingAddHistory()
+            if (missingAttendanceIds.isNotEmpty()) {
+                val attById = attendanceDao.getAllOnce().associateBy { it.globalId }
+                missingAttendanceIds.forEach { globalId ->
+                    val a = attById[globalId] ?: return@forEach
+                    seq += 1
+                    val fields = JSONObject().apply {
+                        put("memberId", a.memberId)
+                        put("timestampMillis", a.timestampMillis)
+                        put("dayEpoch", a.dayEpoch)
+                        put("session", a.session)
+                    }
+                    newEntries += SyncChangeLogEntry(
+                        changeId = UUID.randomUUID().toString(),
+                        entityType = ENTITY_ATTENDANCE,
+                        recordId = globalId,
+                        operation = OP_ADD,
+                        originDeviceId = deviceId,
+                        seq = seq,
+                        timestampMillis = a.timestampMillis,
+                        fieldsJson = fields.toString()
+                    )
+                }
+            }
+
+            if (newEntries.isNotEmpty()) changeLogDao.insertAll(newEntries)
+            syncPrefs.hasBackfilledSyncHistory = true
+        }
+    }
+
+    /**
      * Applies a batch of change-log entries received from a sync peer:
      * stores each into the local log (a duplicate [SyncChangeLogEntry.changeId]
      * is silently ignored - the idempotency the spec requires), then
@@ -339,11 +425,12 @@ class Repository(private val context: Context) {
      * database row itself (a BLOB column, not a separate file), so deleting
      * the row already takes care of that.
      *
-     * Used by both the manual Delete action and [MembershipCleanupWorker] —
-     * previously, deleting a member only removed the database row and silently
-     * left orphaned photo files behind forever; this replaces that everywhere.
-     * Being the single shared path for both deletion routes is exactly what
-     * makes it the right place to also add attendance cleanup once, for both.
+     * Used by the manual Delete action (Profile -> Delete) — previously,
+     * deleting a member only removed the database row and silently left
+     * orphaned photo files behind forever; this fixes that. [MembershipHoldWorker]
+     * no longer deletes members at all (Hold Members feature): a long-expired,
+     * never-renewed member is moved to [MembershipState.HOLD] via the normal
+     * [save] path instead, with nothing removed.
      */
     suspend fun deleteWithFiles(member: Member) = changeLogMutex.withLock {
         deletePhoto(member.id)
