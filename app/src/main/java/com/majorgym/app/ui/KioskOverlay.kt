@@ -91,9 +91,18 @@ fun rememberKioskCoordinator(
             val e = event
             when {
                 e == null -> KioskPhase.IDLE to null
+                // Silent successful scans: a recognized member is matched,
+                // has attendance recorded, and has their Active/Expired status
+                // computed exactly as before inside FingerprintKioskService -
+                // none of that changed. This coordinator just stops turning a
+                // recognized result into a displayed phase, so no scanning
+                // overlay/animation/success screen/Active-or-Expired result
+                // card appears for a normal successful scan. The
+                // MEMBER_ACTIVE/MEMBER_EXPIRED phases and their UI in
+                // [KioskResultOverlay] are intentionally left in place (not
+                // removed) - they're simply never reached from here anymore.
                 !e.recognized -> KioskPhase.NOT_RECOGNIZED to null
-                e.expired -> KioskPhase.MEMBER_EXPIRED to currentMembers.find { it.id == e.matchedMemberId }
-                else -> KioskPhase.MEMBER_ACTIVE to currentMembers.find { it.id == e.matchedMemberId }
+                else -> KioskPhase.IDLE to null
             }
         }
     }

@@ -11,14 +11,18 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.CalendarToday
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CurrencyRupee
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -28,8 +32,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.majorgym.app.MembersViewModel
@@ -79,6 +86,17 @@ fun AttendanceLogsScreen(members: List<Member>, vm: MembersViewModel, onNavigate
     var showFilterMenu by remember { mutableStateOf(false) }
     val openDatePicker = rememberDatePickerLauncher(selectedDate) { selectedDate = it }
 
+    // Attendance Count Visibility Settings - independent show/hide for the
+    // Present/Morning/Evening numbers only (see AttendanceSettingsPrefs).
+    // Purely a display preference: never touches attendance data/calculations,
+    // and never touches the separate Dashboard privacy settings.
+    val context = LocalContext.current
+    val attendancePrefs = remember { AttendanceSettingsPrefs(context) }
+    var showCountSettings by remember { mutableStateOf(false) }
+    var presentVisible by remember { mutableStateOf(attendancePrefs.isCountVisible(AttendanceCount.PRESENT)) }
+    var morningVisible by remember { mutableStateOf(attendancePrefs.isCountVisible(AttendanceCount.MORNING)) }
+    var eveningVisible by remember { mutableStateOf(attendancePrefs.isCountVisible(AttendanceCount.EVENING)) }
+
     // Scoped to just this one day - see AttendanceDao.observeForDay - so
     // switching dates never pulls the whole historical log into memory.
     val dayRecords by produceState(initialValue = emptyList<AttendanceRecord>(), selectedDate) {
@@ -127,6 +145,9 @@ fun AttendanceLogsScreen(members: List<Member>, vm: MembersViewModel, onNavigate
                         color = GymColors.TextMuted, fontSize = 13.sp, modifier = Modifier.padding(top = 2.dp)
                     )
                 }
+                IconButton(onClick = { showCountSettings = true }) {
+                    Icon(Icons.Filled.Settings, contentDescription = "Attendance count settings", tint = GymColors.Accent)
+                }
                 IconButton(onClick = openDatePicker) {
                     Icon(Icons.Filled.CalendarToday, contentDescription = "Pick date", tint = GymColors.Accent)
                 }
@@ -136,9 +157,14 @@ fun AttendanceLogsScreen(members: List<Member>, vm: MembersViewModel, onNavigate
 
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(bottom = 14.dp)) {
-                StatCard("Present", presentCount.toString(), Modifier.weight(1f))
-                StatCard("Morning", morningCount.toString(), Modifier.weight(1f))
-                StatCard("Evening", eveningCount.toString(), Modifier.weight(1f))
+                // A hidden count passes null to StatCard, which keeps the card
+                // and its label visible and only omits the number - see
+                // StatCard's existing null-value behavior. Attendance data and
+                // calculations above (presentCount/morningCount/eveningCount)
+                // are computed exactly as before either way.
+                StatCard("Present", if (presentVisible) presentCount.toString() else null, Modifier.weight(1f))
+                StatCard("Morning", if (morningVisible) morningCount.toString() else null, Modifier.weight(1f))
+                StatCard("Evening", if (eveningVisible) eveningCount.toString() else null, Modifier.weight(1f))
             }
         }
 
@@ -222,6 +248,38 @@ fun AttendanceLogsScreen(members: List<Member>, vm: MembersViewModel, onNavigate
             }
         }
     }
+
+    // Attendance Count Visibility Settings dialog - same shape/pattern as the
+    // existing Dashboard Number Visibility dialog (see DashboardVisibilityRow
+    // in Screens.kt), just backed by AttendanceSettingsPrefs and scoped to
+    // only these three counts.
+    if (showCountSettings) {
+        AlertDialog(
+            onDismissRequest = { showCountSettings = false },
+            containerColor = GymColors.SurfaceCard,
+            title = { Text("Attendance Count Settings", color = GymColors.Text, fontWeight = FontWeight.Bold) },
+            text = {
+                Column {
+                    Text(
+                        "Each count can be shown or hidden independently. The card and its label always stay visible.",
+                        color = GymColors.TextFaint, fontSize = 12.sp, modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                    DashboardVisibilityRow("Present Count", presentVisible) {
+                        presentVisible = it; attendancePrefs.setCountVisible(AttendanceCount.PRESENT, it)
+                    }
+                    DashboardVisibilityRow("Morning Count", morningVisible) {
+                        morningVisible = it; attendancePrefs.setCountVisible(AttendanceCount.MORNING, it)
+                    }
+                    DashboardVisibilityRow("Evening Count", eveningVisible) {
+                        eveningVisible = it; attendancePrefs.setCountVisible(AttendanceCount.EVENING, it)
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showCountSettings = false }) { Text("Done", color = GymColors.Accent) }
+            }
+        )
+    }
 }
 
 /**
@@ -304,6 +362,14 @@ fun AttendanceHistoryScreen(memberId: String, members: List<Member>, vm: Members
             .sortedByDescending { it.timestampMillis }
             .groupBy { it.timestampMillis.toLocalDate().let { d -> java.time.YearMonth.from(d) } }
     }
+    // Section 4: attendance percentage window is membership start date ->
+    // today, recomputed on every recomposition (no caching of "today"), so it
+    // keeps itself correct as the date changes without any extra wiring.
+    // attendedDays counts distinct calendar days with a visit, never raw scan
+    // count, since one member can check in more than once in a day.
+    val attendedDays = remember(records) { records.map { it.dayEpoch }.distinct().size }
+    val eligibleDays = remember(member?.joinedMillis) { member?.let { eligibleAttendanceDays(it.joinedMillis) } ?: 0 }
+    val attendancePercent = remember(attendedDays, eligibleDays) { attendancePercentage(attendedDays, eligibleDays) }
 
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp).padding(top = 20.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 4.dp)) {
@@ -314,14 +380,12 @@ fun AttendanceHistoryScreen(memberId: String, members: List<Member>, vm: Members
                 modifier = Modifier.clickable { onNavigate(Screen.AttendanceLogs) }
             )
             Spacer(Modifier.width(12.dp))
-            Column {
-                Text(member?.name ?: "Attendance History", color = GymColors.Text, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, fontFamily = GymFonts.Display)
-                if (member != null) {
-                    Text(member.phone, color = GymColors.TextMuted, fontSize = 13.sp)
-                }
-            }
+            Text("MEMBER PROFILE", color = GymColors.Text, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, letterSpacing = 0.5.sp, fontFamily = GymFonts.Display)
         }
-        GymSectionLabel("Attendance History", modifier = Modifier.padding(top = 8.dp, bottom = 8.dp))
+        if (member != null) {
+            MemberAttendanceProfileCard(member, attendancePercent, attendedDays, eligibleDays)
+        }
+        GymSectionLabel("Attendance History", modifier = Modifier.padding(top = 16.dp, bottom = 8.dp))
         if (byMonth.isEmpty()) {
             Text("No attendance recorded yet.", color = GymColors.TextFaint, fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp))
         }
@@ -358,6 +422,127 @@ fun AttendanceHistoryScreen(memberId: String, members: List<Member>, vm: Members
                     }
                 }
             }
+        }
+    }
+}
+
+/**
+ * Section 3: dedicated member attendance profile shown above the existing
+ * month-grouped attendance history, styled after the provided reference
+ * image (photo, name, phone, live status, a percentage ring, membership
+ * plan/start/expiry, and attended-vs-eligible days). Reads only fields
+ * [Member] and the attendance percentage calculation already expose - it
+ * doesn't add, recompute, or duplicate any membership/attendance data of its
+ * own, and doesn't touch any other screen's layout.
+ */
+@Composable
+private fun MemberAttendanceProfileCard(member: Member, attendancePercent: Int, attendedDays: Int, eligibleDays: Int) {
+    val status = statusOf(member.expiryMillis)
+    val days = daysBetweenNow(member.expiryMillis)
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 12.dp)
+            .clip(GymShapes.lg)
+            .background(GymColors.CardGlassGradient)
+            .border(1.dp, GymColors.Border, GymShapes.lg)
+            .padding(16.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            StatusRing(member.photoPath, member.name, status, 64.dp)
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f)) {
+                Text(member.name, color = GymColors.Text, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                Text(member.phone, color = GymColors.TextMuted, fontSize = 13.sp, modifier = Modifier.padding(top = 2.dp))
+                Spacer(Modifier.height(6.dp))
+                StatusBadge(status)
+            }
+            Spacer(Modifier.width(10.dp))
+            AttendancePercentRing(attendancePercent, daysLeftLabel = if (days < 0) "Expired" else "$days Days Left")
+        }
+        Spacer(Modifier.height(16.dp))
+        GymSectionLabel("Membership Details", modifier = Modifier.padding(bottom = 8.dp))
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(GymShapes.md)
+                .background(GymColors.SurfaceCard)
+                .border(1.dp, GymColors.Border, GymShapes.md)
+                .padding(horizontal = 14.dp)
+        ) {
+            ProfileRow(Icons.Filled.CurrencyRupee, "Plan", member.plan)
+            ProfileRow(Icons.Filled.CalendarToday, "Start Date", formatDate(member.joinedMillis))
+            ProfileRow(Icons.Filled.CalendarToday, "Expiry Date", formatDate(member.expiryMillis), last = true)
+        }
+        Spacer(Modifier.height(14.dp))
+        GymSectionLabel("Attendance Progress", modifier = Modifier.padding(bottom = 8.dp))
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(GymShapes.md)
+                .background(GymColors.SurfaceCard)
+                .border(1.dp, GymColors.Border, GymShapes.md)
+                .padding(14.dp)
+        ) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("Attended Days", color = GymColors.TextMuted, fontSize = 12.sp)
+                Text("$attendedDays / $eligibleDays Days", color = GymColors.Text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            }
+            Spacer(Modifier.height(10.dp))
+            val progress = if (eligibleDays > 0) (attendedDays.toFloat() / eligibleDays.toFloat()).coerceIn(0f, 1f) else 0f
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(8.dp)
+                    .clip(GymShapes.pill)
+                    .background(GymColors.Surface3)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(progress)
+                        .fillMaxHeight()
+                        .clip(GymShapes.pill)
+                        .background(GymColors.PrimaryGradient)
+                )
+            }
+        }
+    }
+}
+
+/** Circular attendance-percentage ring matching the reference image's style -
+ *  a cyan-to-violet gradient sweep proportional to [percent], with the
+ *  percentage and a short days-left label centered inside. Purely
+ *  presentational: takes an already-computed percent, never calculates one
+ *  itself. */
+@Composable
+private fun AttendancePercentRing(percent: Int, daysLeftLabel: String, ringSize: Dp = 84.dp) {
+    Box(modifier = Modifier.size(ringSize), contentAlignment = Alignment.Center) {
+        androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
+            val strokeWidth = ringSize.toPx() * 0.11f
+            val inset = strokeWidth / 2
+            val arcSize = androidx.compose.ui.geometry.Size(this.size.width - strokeWidth, this.size.height - strokeWidth)
+            drawArc(
+                color = GymColors.Surface3,
+                startAngle = -90f,
+                sweepAngle = 360f,
+                useCenter = false,
+                topLeft = androidx.compose.ui.geometry.Offset(inset, inset),
+                size = arcSize,
+                style = androidx.compose.ui.graphics.drawscope.Stroke(width = strokeWidth, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+            )
+            drawArc(
+                brush = Brush.sweepGradient(listOf(GymColors.AccentBright, GymColors.Violet, GymColors.AccentBright)),
+                startAngle = -90f,
+                sweepAngle = 360f * (percent.coerceIn(0, 100) / 100f),
+                useCenter = false,
+                topLeft = androidx.compose.ui.geometry.Offset(inset, inset),
+                size = arcSize,
+                style = androidx.compose.ui.graphics.drawscope.Stroke(width = strokeWidth, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+            )
+        }
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text("$percent%", color = GymColors.Text, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, fontFamily = GymFonts.Display)
+            Text(daysLeftLabel, color = GymColors.TextFaint, fontSize = 8.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
         }
     }
 }

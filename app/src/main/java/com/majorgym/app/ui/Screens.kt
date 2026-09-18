@@ -286,7 +286,20 @@ fun BottomNav(current: Screen, modifier: Modifier = Modifier, onSelect: (Screen)
                     horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier
                         .weight(1f)
-                        .clip(GymShapes.md)
+                        // Fix (Add button not a complete circle): the round Add
+                        // button is drawn with an upward .offset(), which shifts
+                        // it above this Column's own laid-out bounds without
+                        // changing those bounds. When this Column is clipped to
+                        // GymShapes.md (a rounded rect sized to those bounds),
+                        // the top of the circle - now drawn outside them - gets
+                        // sliced off by that clip, leaving a flat edge instead
+                        // of a full circle. The other (non-Add) items still use
+                        // an ordinary in-place pill highlight with no offset, so
+                        // clipping them is unaffected and left exactly as-is -
+                        // only the Add slot skips this outer clip; the button's
+                        // own .clip(CircleShape) below still keeps it perfectly
+                        // round.
+                        .let { if (isAdd) it else it.clip(GymShapes.md) }
                         .clickable { onSelect(screen) }
                         .padding(vertical = 4.dp)
                 ) {

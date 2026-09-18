@@ -78,3 +78,32 @@ val PLAN_MONTHS = linkedMapOf(
     "6 Months" to 6L,
     "12 Months" to 12L
 )
+
+/**
+ * Attendance percentage window: membership start date -> today (inclusive of
+ * both ends), never the calendar month, a fixed 30/31-day block, the date of
+ * first attendance, or the app install date. Recomputing this from
+ * [startMillis] and [LocalDate.now] each time it's called (rather than
+ * caching it) is what makes the percentage update automatically as the date
+ * changes, with no extra wiring needed.
+ *
+ * There is currently no gym "rest day" (e.g. Sunday) concept anywhere else in
+ * this codebase, so eligible days here is every calendar day in the window -
+ * if/when a rest-day setting is added elsewhere, this is the one place that
+ * would need to start excluding those days from the count.
+ */
+fun eligibleAttendanceDays(startMillis: Long, today: LocalDate = LocalDate.now()): Int {
+    val start = startMillis.toLocalDate()
+    if (start.isAfter(today)) return 0
+    return ChronoUnit.DAYS.between(start, today).toInt() + 1
+}
+
+/** Percentage of [eligibleAttendanceDays] on which the member actually
+ *  attended, rounded to the nearest whole percent. [attendedDays] should be
+ *  the count of distinct calendar days with at least one recorded visit -
+ *  never the raw visit count, since a member can check in more than once a
+ *  day. */
+fun attendancePercentage(attendedDays: Int, eligibleDays: Int): Int {
+    if (eligibleDays <= 0) return 0
+    return ((attendedDays.toDouble() / eligibleDays.toDouble()) * 100).let { Math.round(it).toInt() }.coerceIn(0, 100)
+}
