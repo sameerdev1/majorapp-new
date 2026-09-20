@@ -56,7 +56,6 @@ fun SyncScreen(vm: MembersViewModel) {
     var activeVisible by remember { mutableStateOf(privacyPrefs.isNumberVisible(DashboardCard.ACTIVE)) }
     var expiringVisible by remember { mutableStateOf(privacyPrefs.isNumberVisible(DashboardCard.EXPIRING)) }
     var expiredVisible by remember { mutableStateOf(privacyPrefs.isNumberVisible(DashboardCard.EXPIRED)) }
-    var holdVisible by remember { mutableStateOf(privacyPrefs.isNumberVisible(DashboardCard.HOLD)) }
     var dueVisible by remember { mutableStateOf(privacyPrefs.isNumberVisible(DashboardCard.DUE)) }
 
     // Fix #3: the screen must stay usable once the keyboard opens for the
@@ -254,9 +253,6 @@ fun SyncScreen(vm: MembersViewModel) {
                     }
                     DashboardVisibilityRow("Expired Members", expiredVisible) {
                         expiredVisible = it; privacyPrefs.setNumberVisible(DashboardCard.EXPIRED, it)
-                    }
-                    DashboardVisibilityRow("Hold Members", holdVisible) {
-                        holdVisible = it; privacyPrefs.setNumberVisible(DashboardCard.HOLD, it)
                     }
                     DashboardVisibilityRow("Due Members", dueVisible) {
                         dueVisible = it; privacyPrefs.setNumberVisible(DashboardCard.DUE, it)

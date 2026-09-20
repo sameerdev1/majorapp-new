@@ -37,7 +37,7 @@ import kotlinx.coroutines.sync.withLock
 private const val TAG = "FingerprintKioskSvc"
 private const val MATCHED_DISPLAY_MS = 3000L
 private const val NOT_RECOGNIZED_DISPLAY_MS = 1500L
-private const val LISTEN_SLICE_MS = 2000
+private const val LISTEN_SLICE_MS = 4000
 /** An isolated capture error is tolerated (see the Error branch in runLoop);
  *  this many IN A ROW is treated as a genuine disconnect rather than a
  *  transient SDK/USB hiccup, and actually stops the loop. */

@@ -33,16 +33,6 @@ sealed class Screen {
     data object ActiveMembers : Screen()
     data object ExpiringMembers : Screen()
     data object ExpiredMembers : Screen()
-    /** Members expired more than 2 months with no renewal (see
-     *  [com.majorgym.app.data.MembershipState.HOLD]/MembershipHoldWorker).
-     *  Excluded from the normal Members list/counts, but fully preserved and
-     *  reachable/searchable/renewable here - renewing moves a member
-     *  straight back to the normal Members list using the same Member ID (no
-     *  duplication). The fingerprint/scanner service is intentionally left
-     *  untouched by this feature - see FingerprintKioskService - so a Hold
-     *  member's fingerprint still matches at check-in exactly like anyone
-     *  else's. */
-    data object HoldMembers : Screen()
     /** Members whose current Due Amount (see [com.majorgym.app.data.Member.fee])
      *  is greater than zero - a payment-status filter, independent of
      *  membership status (an ACTIVE member can also be a Due member; see

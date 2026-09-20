@@ -419,7 +419,7 @@ fun DatePickerField(date: LocalDate, onChange: (LocalDate) -> Unit) {
 
 @Composable
 @OptIn(ExperimentalFoundationApi::class)
-fun DashboardScreen(members: List<Member>, holdMembersCount: Int = 0, dueMembersCount: Int = 0, onNavigate: (Screen) -> Unit) {
+fun DashboardScreen(members: List<Member>, dueMembersCount: Int = 0, onNavigate: (Screen) -> Unit) {
     val active = members.count { statusOf(it.expiryMillis) == MemberStatus.ACTIVE }
     val expiring = members.count { statusOf(it.expiryMillis) == MemberStatus.EXPIRING }
     val expired = members.count { statusOf(it.expiryMillis) == MemberStatus.EXPIRED }
@@ -444,7 +444,6 @@ fun DashboardScreen(members: List<Member>, holdMembersCount: Int = 0, dueMembers
     val activeVisible by remember { mutableStateOf(privacyPrefs.isNumberVisible(DashboardCard.ACTIVE)) }
     val expiringVisible by remember { mutableStateOf(privacyPrefs.isNumberVisible(DashboardCard.EXPIRING)) }
     val expiredVisible by remember { mutableStateOf(privacyPrefs.isNumberVisible(DashboardCard.EXPIRED)) }
-    val holdVisible by remember { mutableStateOf(privacyPrefs.isNumberVisible(DashboardCard.HOLD)) }
     val dueVisible by remember { mutableStateOf(privacyPrefs.isNumberVisible(DashboardCard.DUE)) }
 
     LazyColumn(
@@ -471,7 +470,7 @@ fun DashboardScreen(members: List<Member>, holdMembersCount: Int = 0, dueMembers
         }
         if (masterPrivacyOn) {
             // Feature 4: master privacy is ON - nothing else on the Dashboard
-            // renders. No member counts, no Hold/Due rows, no attention list.
+            // renders. No member counts, no Due row, no attention list.
             // This is purely visual: nothing is deleted, disabled, or changed -
             // turning it back off (the eye icon, now on the Sync page header)
             // instantly restores everything exactly as it was, including each
@@ -504,44 +503,6 @@ fun DashboardScreen(members: List<Member>, holdMembersCount: Int = 0, dueMembers
                 StatCard("Expiring Soon", if (expiringVisible) expiring.toString() else null, Modifier.weight(1f).fillMaxHeight()) { onNavigate(Screen.ExpiringMembers) }
                 StatCard("Expired", if (expiredVisible) expired.toString() else null, Modifier.weight(1f).fillMaxHeight()) { onNavigate(Screen.ExpiredMembers) }
             }
-        }
-        item {
-            // Hold Members (fix #5): a separate entry point for members
-            // expired more than 2 months with no renewal - preserved in full,
-            // just hidden from the normal Members list/counts above.
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(GymColors.SurfaceCard)
-                    .border(1.dp, GymColors.Border, RoundedCornerShape(16.dp))
-                    .clickable { onNavigate(Screen.HoldMembers) }
-                    .padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(GymColors.Warning.copy(alpha = 0.15f))
-                        .padding(10.dp)
-                ) {
-                    Icon(Icons.Filled.Pause, contentDescription = null, tint = GymColors.Warning, modifier = Modifier.size(22.dp))
-                }
-                Spacer(Modifier.width(14.dp))
-                Column(Modifier.weight(1f)) {
-                    Text("Hold Members", color = GymColors.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                    Text(
-                        "Expired 2+ months, not yet renewed",
-                        color = GymColors.TextFaint, fontSize = 12.sp, modifier = Modifier.padding(top = 2.dp)
-                    )
-                }
-                if (holdVisible) {
-                    Text(holdMembersCount.toString(), color = GymColors.Warning, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                    Spacer(Modifier.width(8.dp))
-                }
-                Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = GymColors.TextFaint)
-            }
-            Spacer(Modifier.height(14.dp))
         }
         item {
             // Feature 1: Due Members - a payment-status filter, independent
@@ -1175,11 +1136,7 @@ fun AddEditMemberScreen(vm: MembersViewModel, existing: Member?, onNavigate: (Sc
                     // edited. Carry the existing template forward untouched; it is only
                     // ever changed via the dedicated enroll/replace/remove fingerprint
                     // actions (see MembersViewModel.saveFingerprintTemplate / removeFingerprintTemplate).
-                    fingerprintTemplate = existing?.fingerprintTemplate,
-                    // A Hold member being edited (not renewed) stays on Hold -
-                    // only the explicit Renew flow (see RenewScreen) or the
-                    // daily lifecycle worker moves them back to normal.
-                    membershipState = existing?.membershipState ?: MembershipState.ACTIVE
+                    fingerprintTemplate = existing?.fingerprintTemplate
                 )
                 vm.save(member)
                 if (existing == null) onNavigate(Screen.Registered(id, passkey)) else onNavigate(Screen.Profile(id))
@@ -1665,11 +1622,7 @@ fun RenewScreen(member: Member, vm: MembersViewModel, onNavigate: (Screen) -> Un
                         plan = plan, fee = feeVal, expiryMillis = newExpiry, historyJson = newHistory.toJson(),
                         updatedAtMillis = System.currentTimeMillis(),
                         qrToken = QrUtils.freshToken(),
-                        qrTokenExpiryMillis = System.currentTimeMillis() + QrUtils.TOKEN_VALIDITY_MILLIS,
-                        // Fix #6: a Hold member renewing returns straight to
-                        // the normal Members list - same Member ID, no
-                        // duplication.
-                        membershipState = MembershipState.ACTIVE
+                        qrTokenExpiryMillis = System.currentTimeMillis() + QrUtils.TOKEN_VALIDITY_MILLIS
                     )
                 )
                 onNavigate(Screen.Renewed(member.id, justRenewed = true))
