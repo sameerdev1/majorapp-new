@@ -29,7 +29,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -195,20 +199,38 @@ fun DangerButton(
 // Headers / labels
 // ---------------------------------------------------------------------------
 
-/** Big uppercase screen title used at the top of every full screen — same
- *  visual weight the app already used ad hoc (ExtraBold 22sp), just now a
- *  single shared component with the display font applied. */
+/** The approved global Major Gym header style (taken from the Member
+ *  Attendance Details reference): Exo 2 ExtraBold, all caps, slightly open
+ *  letter spacing, white-to-electric-blue gradient with a soft blue glow.
+ *  Every screen title in the app goes through this so they all match. Purely
+ *  typographic - it takes the same text each screen already showed. */
 @Composable
-fun GymScreenTitle(text: String, modifier: Modifier = Modifier) {
+fun GymHeaderText(
+    text: String,
+    modifier: Modifier = Modifier,
+    fontSize: TextUnit = 22.sp,
+    textAlign: TextAlign? = null
+) {
     Text(
         text.uppercase(),
-        color = GymColors.Text,
-        fontWeight = FontWeight.ExtraBold,
-        fontSize = 22.sp,
-        letterSpacing = 0.5.sp,
-        fontFamily = GymFonts.Display,
+        style = TextStyle(
+            brush = GymColors.HeaderGradient,
+            fontFamily = GymFonts.Header,
+            fontWeight = FontWeight.ExtraBold,
+            fontSize = fontSize,
+            letterSpacing = 1.sp,
+            shadow = Shadow(color = GymColors.HeaderGlow, offset = Offset.Zero, blurRadius = 14f)
+        ),
+        textAlign = textAlign,
         modifier = modifier
     )
+}
+
+/** Big uppercase screen title used at the top of every full screen - now a
+ *  thin wrapper over [GymHeaderText] so all titles share one header style. */
+@Composable
+fun GymScreenTitle(text: String, modifier: Modifier = Modifier) {
+    GymHeaderText(text, modifier = modifier, fontSize = 22.sp)
 }
 
 /** Small uppercase section label ("NEEDS ATTENTION", "MEMBERSHIP OVERVIEW"). */

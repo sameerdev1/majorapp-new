@@ -77,7 +77,7 @@ fun RegistrationSuccessScreen(member: Member, passkey: String, onNavigate: (Scre
         Spacer(Modifier.height(12.dp))
         AnimatedVisibility(visible = showMessage, enter = fadeIn(GymMotion.standardTween()) + expandVertically(GymMotion.standardTween())) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("MEMBERSHIP ACTIVATED", color = GymColors.Text, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, letterSpacing = 0.5.sp, fontFamily = GymFonts.Display)
+                GymHeaderText("MEMBERSHIP ACTIVATED", fontSize = 20.sp)
                 Text(member.name, color = GymColors.TextMuted, fontSize = 15.sp, modifier = Modifier.padding(top = 4.dp), fontWeight = FontWeight.Medium)
             }
         }

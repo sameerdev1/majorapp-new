@@ -298,7 +298,7 @@ fun EnrollFingerprintScreen(member: Member, vm: MembersViewModel, returnTo: Scre
         ) {
             Icon(Icons.Filled.ArrowBack, null, tint = GymColors.Text, modifier = Modifier.clickable { onNavigate(returnTo) })
             Spacer(Modifier.width(10.dp))
-            Text("ENROLL FINGERPRINT", color = GymColors.Text, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, letterSpacing = 0.5.sp, fontFamily = GymFonts.Display)
+            GymHeaderText("ENROLL FINGERPRINT", fontSize = 20.sp)
         }
 
         Column(

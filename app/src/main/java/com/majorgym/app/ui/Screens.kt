@@ -38,6 +38,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
@@ -47,6 +48,7 @@ import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -144,109 +146,87 @@ fun StatusBadge(status: MemberStatus) {
     }
 }
 
-// Fix 3: custom top-edge outline for the bottom navigation dock. Replaces
-// the previous plain large rounded-rectangle outline (GymShapes.xl on all
-// four corners) with ONE continuous path: straight top edges over
-// Dashboard/Attendance and Backup/Sync, smoothly curving (horizontal-tangent
-// cubic Beziers, so there is no seam/kink where the curve meets the straight
-// edges) into a shallow cradle centered on the raised Add button in the
-// middle. The bottom and side corners keep the same rounding radius as
-// before - only the TOP edge shape changed. Because this is applied via
-// background(shape)/border(shape) rather than clip(shape), the Add button
-// (drawn as ordinary Row content on top) is never cut off by the cradle -
-// it simply is no longer covered by a border stroke or background fill in
-// that region, which is what makes it read as notched into the surface.
-private fun bottomNavCradlePath(
-    size: Size,
-    cornerRadiusPx: Float,
-    notchHalfWidthPx: Float,
-    notchFlatHalfWidthPx: Float,
-    notchDepthPx: Float
-): Path {
-    val w = size.width
-    val h = size.height
-    val cx = w / 2f
-    val r = cornerRadiusPx.coerceAtMost(minOf(w, h) / 2f)
-    val dx = (notchHalfWidthPx - notchFlatHalfWidthPx).coerceAtLeast(1f)
-    val k = dx * 0.55f // circle-approximation constant, keeps the curve's bulge natural
-    return Path().apply {
-        moveTo(r, 0f)
-        // Straight top edge over Dashboard/Attendance, up to the cradle's left opening.
-        lineTo(cx - notchHalfWidthPx, 0f)
-        // Curve down into the cradle - horizontal tangent at the straight edge (cp1.y = 0)
-        // and horizontal tangent at the flat bottom (cp2.y = notchDepthPx) so both joins are smooth.
-        cubicTo(
-            cx - notchHalfWidthPx + k, 0f,
-            cx - notchFlatHalfWidthPx - k, notchDepthPx,
-            cx - notchFlatHalfWidthPx, notchDepthPx
-        )
-        // Flat bottom of the cradle, directly under the Add button.
-        lineTo(cx + notchFlatHalfWidthPx, notchDepthPx)
-        // Curve back up out of the cradle, mirroring the entry curve.
-        cubicTo(
-            cx + notchFlatHalfWidthPx + k, notchDepthPx,
-            cx + notchHalfWidthPx - k, 0f,
-            cx + notchHalfWidthPx, 0f
-        )
-        // Straight top edge over Backup/Sync, up to the top-right corner.
-        lineTo(w - r, 0f)
-        arcTo(Rect(w - 2 * r, 0f, w, 2 * r), -90f, 90f, false)
-        lineTo(w, h - r)
-        arcTo(Rect(w - 2 * r, h - 2 * r, w, h), 0f, 90f, false)
-        lineTo(r, h)
-        arcTo(Rect(0f, h - 2 * r, 2 * r, h), 90f, 90f, false)
-        lineTo(0f, r)
-        arcTo(Rect(0f, 0f, 2 * r, 2 * r), 180f, 90f, false)
-        close()
-    }
-}
+// ---------------------------------------------------------------------------
+// Bottom navigation dock - visual style taken from the approved reference
+// image (edge-to-edge dark navy dock, glowing blue/violet top edge that
+// rises in an arch around a raised, ringed, circular Add button, labelled
+// icons). Structure/behaviour are unchanged: same five destinations in the
+// same order (Dashboard | Attendance | Add | Backup | Sync), same onSelect
+// wiring, Add stays in the exact horizontal center (five equal-weight
+// slots + an arch/button centered on the dock's own center line).
+// ---------------------------------------------------------------------------
 
-private class BottomNavCradleShape(
+private val NavBarHeight = 62.dp   // the flat part of the dock
+private val NavArchRise = 26.dp    // how far the center arch rises above it
+/** Full height of the dock (flat bar + center arch), excluding system insets.
+ *  Screens that need to keep content clear of the dock can use this. */
+internal val BottomNavTotalHeight = NavArchRise + NavBarHeight
+private val NavAddRingSize = 62.dp
+private val NavAddButtonSize = 48.dp
+
+private val NavBg = Brush.verticalGradient(listOf(Color(0xF20A1434), Color(0xFA050A1C)))
+private val NavBorder = Brush.horizontalGradient(
+    listOf(Color(0xFF7B5CFF), Color(0xFF2F80FF), Color(0xFF3FD0FF), Color(0xFF2F80FF), Color(0xFF7B5CFF))
+)
+private val NavIdleIcon = Color(0xFF5B8DEF)
+private val NavIdleLabel = Color(0xFF93A8D0)
+private val NavActiveIcon = Color(0xFF8CCBFF)
+private val NavAddLabel = Color(0xFF4DA8FF)
+
+/** Dock outline: flat top edge with rounded outer corners and a smooth arch
+ *  (horizontal tangents at both joins, so no kinks) rising around the
+ *  centered Add button. Straight down the sides and along the bottom, since
+ *  the dock runs to the screen edges. */
+private class DockShape(
     private val cornerRadius: Dp,
-    private val notchHalfWidth: Dp,
-    private val notchFlatHalfWidth: Dp,
-    private val notchDepth: Dp
+    private val barTop: Dp,
+    private val archHalfWidth: Dp,
+    private val archFlatHalfWidth: Dp
 ) : Shape {
     override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density): Outline {
-        val path = bottomNavCradlePath(
-            size = size,
-            cornerRadiusPx = with(density) { cornerRadius.toPx() },
-            notchHalfWidthPx = with(density) { notchHalfWidth.toPx() },
-            notchFlatHalfWidthPx = with(density) { notchFlatHalfWidth.toPx() },
-            notchDepthPx = with(density) { notchDepth.toPx() }
-        )
+        val r = with(density) { cornerRadius.toPx() }
+        val top = with(density) { barTop.toPx() }
+        val hw = with(density) { archHalfWidth.toPx() }
+        val fw = with(density) { archFlatHalfWidth.toPx() }
+        val w = size.width
+        val h = size.height
+        val cx = w / 2f
+        val k = (hw - fw).coerceAtLeast(1f) * 0.55f
+        val path = Path().apply {
+            moveTo(0f, top + r)
+            arcTo(Rect(0f, top, 2 * r, top + 2 * r), 180f, 90f, false)
+            lineTo(cx - hw, top)
+            cubicTo(cx - hw + k, top, cx - fw - k, 0f, cx - fw, 0f)
+            lineTo(cx + fw, 0f)
+            cubicTo(cx + fw + k, 0f, cx + hw - k, top, cx + hw, top)
+            lineTo(w - r, top)
+            arcTo(Rect(w - 2 * r, top, w, top + 2 * r), 270f, 90f, false)
+            lineTo(w, h)
+            lineTo(0f, h)
+            close()
+        }
         return Outline.Generic(path)
     }
 }
 
 @Composable
 fun BottomNav(current: Screen, modifier: Modifier = Modifier, onSelect: (Screen) -> Unit) {
-    // "Members" was removed from here (spec: member management is already
-    // reachable from Dashboard -> Total Members via Screen.TotalMembers,
-    // which is untouched). Screen.Members and MembersScreen still exist in
-    // the codebase, unmodified - this list is just where they stop being
-    // reachable from.
-    // Same 5 destinations, same order, same onSelect wiring as before — only
-    // the visual treatment changed (glass dock + elevated center Add action,
-    // matching the Stitch "Navigation Command Dock").
+    // Same 5 destinations, same order, same onSelect wiring as before. (The
+    // old "Attendance Logs" destination is now simply labelled "Attendance",
+    // per the approved reference.)
     val items = listOf(
-        Triple(Screen.Dashboard as Screen, Icons.Filled.Dashboard, "Dashboard"),
-        Triple(Screen.AttendanceLogs as Screen, Icons.Filled.FactCheck, "Attendance Logs"),
+        Triple(Screen.Dashboard as Screen, Icons.Filled.Home, "Dashboard"),
+        Triple(Screen.AttendanceLogs as Screen, Icons.Filled.Group, "Attendance"),
         Triple(Screen.Add as Screen, Icons.Filled.PersonAdd, "Add"),
         Triple(Screen.Backup as Screen, Icons.Filled.Storage, "Backup"),
         Triple(Screen.Sync as Screen, Icons.Filled.Sync, "Sync")
     )
-    // Fix 3: the Add button sits centered in the middle slot of 5 equal-width
-    // items, so its horizontal center always lands exactly on this Box's own
-    // horizontal center - the cradle shape below is centered the same way,
-    // so the notch always lines up with the button regardless of screen width.
-    val navCradleShape = remember {
-        BottomNavCradleShape(
-            cornerRadius = 24.dp,
-            notchHalfWidth = 32.dp,
-            notchFlatHalfWidth = 16.dp,
-            notchDepth = 22.dp
-        )
+    // Highlighting only: a member's Attendance Details page is a child of the
+    // Attendance section, so Attendance stays lit there (as in the reference).
+    // This never affects what tapping any item does.
+    val highlighted: Screen = if (current is Screen.AttendanceHistory) Screen.AttendanceLogs else current
+    val dockShape = remember {
+        DockShape(cornerRadius = 26.dp, barTop = NavArchRise, archHalfWidth = 50.dp, archFlatHalfWidth = 16.dp)
     }
     Box(
         modifier = modifier
@@ -254,95 +234,95 @@ fun BottomNav(current: Screen, modifier: Modifier = Modifier, onSelect: (Screen)
             // Respect gesture/3-button system navigation insets so the dock
             // never sits under (or gets covered by) the system nav bar.
             .navigationBarsPadding()
-            .padding(horizontal = 14.dp, vertical = 10.dp)
-            // No .clip() here on purpose: background/border are painted
-            // following the cradle shape's outline, but content (the Row,
-            // including the raised Add button) is left unclipped so the
-            // button can visually sit in the notch instead of being cut by it.
-            .background(GymColors.Bg.copy(alpha = 0.88f), navCradleShape)
-            .border(1.dp, GymColors.BorderSubtle, navCradleShape)
-            .padding(vertical = 10.dp)
+            .height(NavArchRise + NavBarHeight)
     ) {
+        // Dock surface: soft glow along the top edge, navy fill, gradient border.
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .drawBehind {
+                    val dockPath = (dockShape.createOutline(size, layoutDirection, this) as Outline.Generic).path
+                    listOf(9.dp to 0.06f, 5.dp to 0.10f, 2.5.dp to 0.18f).forEach { (width, a) ->
+                        drawPath(dockPath, brush = NavBorder, alpha = a, style = Stroke(width = width.toPx()))
+                    }
+                }
+                .background(NavBg, dockShape)
+                .border(1.5.dp, NavBorder, dockShape)
+        )
+
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = NavArchRise)
+                .height(NavBarHeight),
             verticalAlignment = Alignment.CenterVertically
         ) {
             items.forEach { (screen, icon, label) ->
-                val active = current == screen
                 val isAdd = screen == Screen.Add
-                // Section 6: the selected pill, icon tint, and label color all
-                // ease into place instead of snapping — restrained, no bounce.
-                val pillAlpha by animateFloatAsState(
-                    if (active) 0.18f else 0f, animationSpec = GymMotion.standardTween(), label = "navPillAlpha"
+                val active = !isAdd && screen == highlighted
+                val iconTint by animateColorAsState(
+                    if (active) NavActiveIcon else NavIdleIcon, animationSpec = GymMotion.standardTween(), label = "navTint"
                 )
-                val tint by animateColorAsState(
-                    if (active) GymColors.AccentBright else GymColors.TextFaint, animationSpec = GymMotion.standardTween(), label = "navTint"
+                val labelColor by animateColorAsState(
+                    if (active) Color.White else NavIdleLabel, animationSpec = GymMotion.standardTween(), label = "navLabel"
                 )
-                // Fix: equal-width slots via weight(1f) instead of
-                // SpaceEvenly + ad hoc horizontal padding, so every icon sits
-                // perfectly centered in its own slot on any screen width and
-                // nothing gets clipped at the edges.
+                val interaction = remember { MutableInteractionSource() }
+                // Five equal-width slots (weight 1f) keep every icon centered in
+                // its own slot on any screen width - and keep the Add slot
+                // exactly on the dock's center line.
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
                     modifier = Modifier
                         .weight(1f)
-                        // Fix (Add button not a complete circle): the round Add
-                        // button is drawn with an upward .offset(), which shifts
-                        // it above this Column's own laid-out bounds without
-                        // changing those bounds. When this Column is clipped to
-                        // GymShapes.md (a rounded rect sized to those bounds),
-                        // the top of the circle - now drawn outside them - gets
-                        // sliced off by that clip, leaving a flat edge instead
-                        // of a full circle. The other (non-Add) items still use
-                        // an ordinary in-place pill highlight with no offset, so
-                        // clipping them is unaffected and left exactly as-is -
-                        // only the Add slot skips this outer clip; the button's
-                        // own .clip(CircleShape) below still keeps it perfectly
-                        // round.
-                        .let { if (isAdd) it else it.clip(GymShapes.md) }
-                        .clickable { onSelect(screen) }
-                        .padding(vertical = 4.dp)
+                        .fillMaxHeight()
+                        .gymPressScale(interaction)
+                        .clickable(interactionSource = interaction, indication = null) { onSelect(screen) }
                 ) {
                     if (isAdd) {
-                        // Elevated central floating action button, per the
-                        // Stitch dock spec — same Screen.Add destination.
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier
-                                .size(46.dp)
-                                .offset(y = (-10).dp)
-                                .neonGlow(GymColors.AccentBright, alpha = 0.45f, radius = 14.dp, shape = CircleShape)
-                                .clip(CircleShape)
-                                .background(GymColors.PrimaryGradient)
-                        ) {
-                            Icon(icon, contentDescription = label, tint = Color(0xFF06121A), modifier = Modifier.size(22.dp))
-                        }
+                        // The raised Add button is drawn as an overlay below; this
+                        // just reserves its icon row so the "Add" label lines up
+                        // with the other four labels.
+                        Spacer(Modifier.size(24.dp))
                     } else {
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier
-                                .clip(GymShapes.md)
-                                .background(GymColors.Accent.copy(alpha = pillAlpha))
-                                .padding(horizontal = 14.dp, vertical = 4.dp)
-                        ) {
-                            Icon(icon, contentDescription = label, tint = tint)
-                        }
+                        Icon(icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(24.dp))
                     }
-                    // Text requirement: only "Add" keeps a visible label now.
-                    // The other four destinations stay icon-only — still
-                    // clearly identifiable by their existing icons, and their
-                    // content description keeps the label for accessibility.
-                    if (isAdd) {
-                        Spacer(Modifier.height(2.dp))
-                        Text(
-                            label,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = GymColors.AccentBright,
-                            fontFamily = GymFonts.Display
-                        )
-                    }
+                    Spacer(Modifier.height(3.dp))
+                    Text(
+                        label,
+                        fontSize = 11.sp,
+                        fontWeight = if (isAdd || active) FontWeight.Bold else FontWeight.Medium,
+                        color = if (isAdd) NavAddLabel else labelColor,
+                        maxLines = 1
+                    )
                 }
+            }
+        }
+
+        // Raised, ringed Add button, centered in the arch. Same destination
+        // (Screen.Add) as the Add slot beneath it.
+        val addInteraction = remember { MutableInteractionSource() }
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .offset(y = 1.dp)
+                .gymPressScale(addInteraction)
+                .size(NavAddRingSize)
+                .neonGlow(Color(0xFF2F8BFF), alpha = 0.55f, radius = 18.dp, shape = CircleShape)
+                .clip(CircleShape)
+                .background(Color(0xFF060E26))
+                .border(1.5.dp, Brush.verticalGradient(listOf(Color(0xFF5CC8FF), Color(0xFF3B5BFF))), CircleShape)
+                .clickable(interactionSource = addInteraction, indication = null) { onSelect(Screen.Add) }
+        ) {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .size(NavAddButtonSize)
+                    .clip(CircleShape)
+                    .background(Brush.verticalGradient(listOf(Color(0xFF58AEFF), Color(0xFF2563EB))))
+            ) {
+                Icon(Icons.Filled.PersonAdd, contentDescription = "Add", tint = Color.White, modifier = Modifier.size(24.dp))
             }
         }
     }
@@ -612,7 +592,7 @@ fun AttendanceScreen(onNavigate: (Screen) -> Unit) {
                 Icon(Icons.Filled.ArrowBack, contentDescription = "Back", tint = GymColors.Text)
             }
             Spacer(Modifier.width(4.dp))
-            Text("Attendance", color = GymColors.Text, fontWeight = FontWeight.Bold, fontSize = 20.sp)
+            GymHeaderText("Attendance", fontSize = 20.sp)
         }
         GymAttendanceQrCard()
     }
@@ -931,11 +911,7 @@ fun AddEditMemberScreen(vm: MembersViewModel, existing: Member?, onNavigate: (Sc
                 modifier = Modifier.clickable { onNavigate(existing?.let { Screen.Profile(it.id) } ?: Screen.Members) }
             )
             Spacer(Modifier.width(10.dp))
-            Text(
-                if (existing == null) "ADD MEMBER" else "EDIT MEMBER",
-                color = GymColors.Text, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, letterSpacing = 0.5.sp,
-                fontFamily = GymFonts.Display
-            )
+            GymHeaderText(if (existing == null) "ADD MEMBER" else "EDIT MEMBER", fontSize = 20.sp)
         }
         Spacer(Modifier.height(20.dp))
 
@@ -1276,7 +1252,7 @@ fun ProfileScreen(member: Member, vm: MembersViewModel, onNavigate: (Screen) -> 
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 16.dp)) {
                 Icon(Icons.Filled.ArrowBack, null, tint = GymColors.Text, modifier = Modifier.clickable { onNavigate(Screen.Members) })
                 Spacer(Modifier.width(10.dp))
-                Text("MEMBER PROFILE", color = GymColors.Text, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, letterSpacing = 0.5.sp, fontFamily = GymFonts.Display)
+                GymHeaderText("MEMBER PROFILE", fontSize = 20.sp)
             }
             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
                 Box(modifier = Modifier.clickable { showPhoto = true }) {
@@ -1567,7 +1543,7 @@ fun RenewScreen(member: Member, vm: MembersViewModel, onNavigate: (Screen) -> Un
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 16.dp)) {
             Icon(Icons.Filled.ArrowBack, null, tint = GymColors.Text, modifier = Modifier.clickable { onNavigate(Screen.Profile(member.id)) })
             Spacer(Modifier.width(10.dp))
-            Text("RENEW MEMBERSHIP", color = GymColors.Text, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, letterSpacing = 0.5.sp, fontFamily = GymFonts.Display)
+            GymHeaderText("RENEW MEMBERSHIP", fontSize = 20.sp)
         }
         FuturisticCard(modifier = Modifier.fillMaxWidth().padding(bottom = 20.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1679,7 +1655,7 @@ fun RenewalSuccessScreen(member: Member, justRenewed: Boolean = false, onNavigat
         Spacer(Modifier.height(12.dp))
         AnimatedVisibility(visible = showMessage, enter = fadeIn(GymMotion.standardTween()) + expandVertically(GymMotion.standardTween())) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(if (justRenewed) "MEMBERSHIP RENEWED" else "QR UPDATED", color = GymColors.Text, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, letterSpacing = 0.5.sp, fontFamily = GymFonts.Display)
+                GymHeaderText(if (justRenewed) "MEMBERSHIP RENEWED" else "QR UPDATED", fontSize = 20.sp)
                 Text(member.name, color = GymColors.TextMuted, fontSize = 14.sp, modifier = Modifier.padding(top = 4.dp))
             }
         }
@@ -1995,7 +1971,7 @@ fun BackupHistoryScreen(vm: MembersViewModel, onNavigate: (Screen) -> Unit) {
                 modifier = Modifier.clickable { onNavigate(Screen.Backup) }
             )
             Spacer(Modifier.width(12.dp))
-            Text("BACKUP HISTORY", color = GymColors.Text, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, letterSpacing = 0.5.sp, fontFamily = GymFonts.Display)
+            GymHeaderText("BACKUP HISTORY", fontSize = 20.sp)
         }
         if (entries.isEmpty()) {
             GymEmptyState("No backups taken yet.")

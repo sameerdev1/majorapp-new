@@ -8,9 +8,12 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.Modifier
+import com.majorgym.app.R
 
 // ---------------------------------------------------------------------------
 // Major Gym design system — "Biometric Core OS"
@@ -64,6 +67,13 @@ object GymColors {
     val CardGlassGradient = Brush.verticalGradient(
         listOf(Color(0xFF141926), Color(0xFF0D111A))
     )
+    // Global screen-header treatment (approved Member Attendance Details
+    // reference): white at the top easing into electric blue, with a soft
+    // cyan glow applied by GymHeaderText.
+    val HeaderGradient = Brush.verticalGradient(
+        listOf(Color(0xFFFFFFFF), Color(0xFFA9DBFF), Color(0xFF3F8CFF))
+    )
+    val HeaderGlow = Color(0xAA1E90FF)
     val ScreenBackdrop = Brush.radialGradient(
         colors = listOf(Color(0x298B5CF6), Color(0x0000F0FF), Color(0x00080B12)),
         radius = 900f
@@ -89,6 +99,16 @@ object GymColors {
 object GymFonts {
     val Display = FontFamily.SansSerif
     val Body = FontFamily.SansSerif
+
+    /** Exo 2 (SIL OFL 1.1, bundled in res/font — license in docs/Exo2-OFL.txt).
+     *  Used for screen headers app-wide and the Member Attendance Details
+     *  screen's headings. Display/Body above are intentionally unchanged so
+     *  no other text in the app changes typeface. */
+    val Header = FontFamily(
+        Font(R.font.exo2_semibold, FontWeight.SemiBold),
+        Font(R.font.exo2_bold, FontWeight.Bold),
+        Font(R.font.exo2_extrabold, FontWeight.ExtraBold)
+    )
 }
 
 private val DarkColors = darkColorScheme(
