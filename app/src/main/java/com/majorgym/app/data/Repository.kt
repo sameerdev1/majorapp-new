@@ -231,6 +231,25 @@ class Repository(private val context: Context) {
                 }
             }
 
+            val missingArchivedIds = changeLogDao.archivedMemberIdsMissingAddHistory()
+            if (missingArchivedIds.isNotEmpty()) {
+                val archivedById = archivedDao.getAllOnce().associateBy { it.originalMemberId }
+                missingArchivedIds.forEach { id ->
+                    val a = archivedById[id] ?: return@forEach
+                    seq += 1
+                    newEntries += SyncChangeLogEntry(
+                        changeId = UUID.randomUUID().toString(),
+                        entityType = ENTITY_ARCHIVED_MEMBER,
+                        recordId = a.originalMemberId,
+                        operation = OP_ADD,
+                        originDeviceId = deviceId,
+                        seq = seq,
+                        timestampMillis = a.archivedAtMillis,
+                        fieldsJson = SyncChangeCodec.encodeArchivedMember(a).toString()
+                    )
+                }
+            }
+
             if (newEntries.isNotEmpty()) changeLogDao.insertAll(newEntries)
             syncPrefs.hasBackfilledSyncHistory = true
         }
@@ -250,8 +269,10 @@ class Repository(private val context: Context) {
         val newlyInserted = entries.filterIndexed { i, _ -> rowIds.getOrElse(i) { -1L } != -1L }
         val affectedMembers = newlyInserted.filter { it.entityType == ENTITY_MEMBER }.map { it.recordId }.toSet()
         val affectedAttendance = newlyInserted.filter { it.entityType == ENTITY_ATTENDANCE }.map { it.recordId }.toSet()
+        val affectedArchived = newlyInserted.filter { it.entityType == ENTITY_ARCHIVED_MEMBER }.map { it.recordId }.toSet()
         affectedMembers.forEach { recomputeAndApplyMember(it) }
         affectedAttendance.forEach { recomputeAndApplyAttendance(it) }
+        affectedArchived.forEach { recomputeAndApplyArchivedMember(it) }
         newlyInserted.size
     }
 
@@ -305,12 +326,27 @@ class Repository(private val context: Context) {
         }
     }
 
-    /** Attendance visits are add-only (no edits/deletes travel through sync -
-     *  see spec scope), so this just needs the one ADD entry for [globalId].
-     *  [AttendanceDao.insertIgnoringDuplicate]'s unique indices are the
-     *  actual "never duplicate no matter how many times sync runs" guard. */
+    /** Attendance visits are add-only from the *recording* side, but Device
+     *  Sync fix #2 adds one deletion event: archiving a member permanently
+     *  removes their attendance (see [deleteWithFiles]), and that deletion
+     *  itself now travels through sync as an ATTENDANCE/[OP_DELETE] entry
+     *  keyed on the same stable [globalId] an ADD would use - so this
+     *  replays the FULL history for [globalId] rather than assuming only an
+     *  ADD can ever exist. A DELETE anywhere in the history wins (mirrors
+     *  [recomputeAndApplyMember]'s tombstone rule) - once every device
+     *  agrees a check-in was removed via archival, it can't come back.
+     *  [AttendanceDao.insertIgnoringDuplicate]/[AttendanceDao.deleteByGlobalId]
+     *  are both plain no-ops when already applied, which is the actual
+     *  "never duplicate/never double-delete no matter how many times sync
+     *  runs" guard. */
     private suspend fun recomputeAndApplyAttendance(globalId: String) {
-        val addEntry = changeLogDao.getForRecord(ENTITY_ATTENDANCE, globalId).firstOrNull { it.operation == OP_ADD } ?: return
+        val entries = changeLogDao.getForRecord(ENTITY_ATTENDANCE, globalId)
+        if (entries.isEmpty()) return
+        if (entries.any { it.operation == OP_DELETE }) {
+            attendanceDao.deleteByGlobalId(globalId)
+            return
+        }
+        val addEntry = entries.firstOrNull { it.operation == OP_ADD } ?: return
         val f = JSONObject(addEntry.fieldsJson ?: return)
         val memberId = f.optString("memberId", "")
         if (memberId.isBlank()) return
@@ -320,6 +356,37 @@ class Repository(private val context: Context) {
         attendanceDao.insertIgnoringDuplicate(
             AttendanceRecord(memberId = memberId, timestampMillis = timestampMillis, dayEpoch = dayEpoch, session = session, globalId = globalId)
         )
+    }
+
+    /**
+     * Device Sync fix #1: applies a synced 30-Day Expired Member Archive
+     * change for [recordId] (an [ArchivedMember.originalMemberId]). Mirrors
+     * [recomputeAndApplyMember]'s replay approach: a DELETE anywhere in the
+     * history (the archive was restored - see [restoreArchivedMember]) wins
+     * and removes the local archive row; otherwise the ADD snapshot is
+     * applied via the same idempotent [ArchivedMemberDao.insertIgnoringDuplicate]
+     * the local archive path already uses.
+     *
+     * Deliberately touches ONLY the archived_members table - never creates
+     * or reactivates a row in the operational members table, so a received
+     * archive can never make a member active again (spec: "Archived Member
+     * Must Not Become Active During Sync"). The corresponding "member is no
+     * longer operational" and "attendance is gone" states are carried by
+     * their own MEMBER/[OP_DELETE] and ATTENDANCE/[OP_DELETE] entries
+     * (see [deleteWithFiles]), applied independently via
+     * [recomputeAndApplyMember]/[recomputeAndApplyAttendance].
+     */
+    private suspend fun recomputeAndApplyArchivedMember(recordId: String) {
+        val entries = changeLogDao.getForRecord(ENTITY_ARCHIVED_MEMBER, recordId)
+        if (entries.isEmpty()) return
+        if (entries.any { it.operation == OP_DELETE }) {
+            archivedDao.deleteById(recordId)
+            return
+        }
+        val addEntry = entries.firstOrNull { it.operation == OP_ADD } ?: return
+        val fields = JSONObject(addEntry.fieldsJson ?: return)
+        val archived = SyncChangeCodec.decodeArchivedMemberFields(recordId, fields) ?: return
+        archivedDao.insertIgnoringDuplicate(archived)
     }
 
     // ---------- Attendance Logs (new feature) ----------
@@ -438,14 +505,46 @@ class Repository(private val context: Context) {
     suspend fun deleteWithFiles(member: Member) = changeLogMutex.withLock {
         deletePhoto(member.id)
         deleteIdProofPhoto(member.id)
-        dao.delete(member)
-        attendanceDao.deleteForMember(member.id)
-        // Device Sync fix #1: a real, permanent tombstone - the whole reason
-        // a deletion can't just be inferred from "this id is no longer in
-        // the members table" (a device that never even knew about this
-        // member wouldn't be able to tell "never existed" from "existed and
-        // was deleted" apart otherwise).
-        logMemberDeleted(member.id)
+        // Fix #3 (shared by both the manual Delete action and archival, so
+        // both get the same crash-safety): the member row, its attendance
+        // rows, and every sync change-log entry describing those deletions
+        // are all written in one Room transaction, so a process death
+        // partway through can never leave, say, the member deleted but the
+        // attendance-deletion sync entries missing.
+        db.withTransaction {
+            dao.delete(member)
+            // Device Sync fix #2: read every attendance row's stable
+            // globalId BEFORE deleting them - once deleteForMember runs
+            // there is nothing left to enumerate - and log one
+            // ATTENDANCE/OP_DELETE tombstone per id so a paired device
+            // removes the exact same rows rather than only inferring the
+            // deletion from the member itself disappearing (which never
+            // distinguishes "never had this row" from "had it and it was
+            // deleted").
+            val deviceId = syncPrefs.deviceId
+            val attendanceGlobalIds = attendanceDao.globalIdsForMember(member.id)
+            attendanceDao.deleteForMember(member.id)
+            attendanceGlobalIds.forEach { globalId ->
+                changeLogDao.insert(
+                    SyncChangeLogEntry(
+                        changeId = UUID.randomUUID().toString(),
+                        entityType = ENTITY_ATTENDANCE,
+                        recordId = globalId,
+                        operation = OP_DELETE,
+                        originDeviceId = deviceId,
+                        seq = nextSeq(deviceId),
+                        timestampMillis = System.currentTimeMillis(),
+                        fieldsJson = null
+                    )
+                )
+            }
+            // Device Sync fix #1: a real, permanent tombstone - the whole
+            // reason a deletion can't just be inferred from "this id is no
+            // longer in the members table" (a device that never even knew
+            // about this member wouldn't be able to tell "never existed"
+            // from "existed and was deleted" apart otherwise).
+            logMemberDeleted(member.id)
+        }
     }
 
     // ---------- 30-Day Expired Member Archive ----------
@@ -456,21 +555,29 @@ class Repository(private val context: Context) {
     suspend fun archivedMembersOnce(): List<ArchivedMember> = archivedDao.getAllOnce()
 
     /**
-     * Archives one expired member: creates the lightweight [ArchivedMember]
-     * record (idempotent - a member already archived is left as-is), then -
-     * only once that record is confirmed written - removes the operational
-     * [Member] row via [deleteWithFiles], which already deletes the
-     * member's attendance history and logs the sync tombstone, so a
-     * deletion is never propagated to other synced devices without the
-     * archive existing first. The create+confirm step runs inside a Room
-     * transaction so a process death mid-write can never leave a half
-     * -written archive row behind.
+     * Archives one expired member. Fix #3: the entire logical operation -
+     * create the [ArchivedMember] row (idempotent - a member already
+     * archived is left as-is), log its ARCHIVED_MEMBER/[OP_ADD] sync entry,
+     * delete the member's attendance history and log an ATTENDANCE/[OP_DELETE]
+     * entry per row, then remove the operational [Member] row and log its
+     * MEMBER/[OP_DELETE] tombstone - runs inside ONE Room transaction, so a
+     * process death at any point leaves the database exactly as it was
+     * before this call, never half-archived (e.g. an ArchivedMember row
+     * with the operational Member and their attendance still present, or
+     * vice versa). Photo files are only deleted once that transaction has
+     * committed, mirroring [deleteWithFiles].
+     *
+     * Idempotent: if the member is already archived (e.g. this worker run
+     * is a retry, or the row arrived first via sync), the archive row,
+     * deletions, and every sync entry below are skipped entirely - nothing
+     * is re-created, re-deleted, or logged twice.
      *
      * Returns false (member left completely untouched) if the archive
      * couldn't be confirmed - callers must never proceed to delete the
      * member in that case.
      */
-    suspend fun archiveMember(member: Member): Boolean {
+    suspend fun archiveMember(member: Member): Boolean = changeLogMutex.withLock {
+        val deviceId = syncPrefs.deviceId
         val archiveConfirmed = db.withTransaction {
             if (archivedDao.getByIdOnce(member.id) == null) {
                 val planMonths = PLAN_MONTHS[member.plan]
@@ -479,26 +586,76 @@ class Repository(private val context: Context) {
                 } else {
                     member.joinedMillis
                 }
-                archivedDao.insertIgnoringDuplicate(
-                    ArchivedMember(
-                        originalMemberId = member.id,
-                        name = member.name,
-                        phone = member.phone,
-                        joinedMillis = member.joinedMillis,
-                        lastPlan = member.plan,
-                        lastFee = member.fee,
-                        lastStartMillis = lastStart,
-                        lastExpiryMillis = member.expiryMillis,
-                        idProof = member.idProof,
-                        archivedAtMillis = System.currentTimeMillis()
-                    )
+                val archived = ArchivedMember(
+                    originalMemberId = member.id,
+                    name = member.name,
+                    phone = member.phone,
+                    joinedMillis = member.joinedMillis,
+                    lastPlan = member.plan,
+                    lastFee = member.fee,
+                    lastStartMillis = lastStart,
+                    lastExpiryMillis = member.expiryMillis,
+                    idProof = member.idProof,
+                    archivedAtMillis = System.currentTimeMillis()
                 )
+                archivedDao.insertIgnoringDuplicate(archived)
+                // Only log a fresh ARCHIVED_MEMBER_CREATED change if this
+                // call is the one that actually just created the row - an
+                // idempotent re-run (member somehow already archived) must
+                // not emit a second ADD for the same record (no duplicate
+                // sync changes where avoidable).
+                if (archivedDao.getByIdOnce(member.id) != null) {
+                    changeLogDao.insert(
+                        SyncChangeLogEntry(
+                            changeId = UUID.randomUUID().toString(),
+                            entityType = ENTITY_ARCHIVED_MEMBER,
+                            recordId = archived.originalMemberId,
+                            operation = OP_ADD,
+                            originDeviceId = deviceId,
+                            seq = nextSeq(deviceId),
+                            timestampMillis = archived.archivedAtMillis,
+                            fieldsJson = SyncChangeCodec.encodeArchivedMember(archived).toString()
+                        )
+                    )
+                }
             }
-            archivedDao.getByIdOnce(member.id) != null
+            val confirmed = archivedDao.getByIdOnce(member.id) != null
+            // Guard the delete-and-log steps on the operational row still
+            // actually being present: an idempotent re-run where the
+            // member was already deleted in a previous call (or arrived
+            // pre-deleted via sync) must not emit a second MEMBER/OP_DELETE
+            // tombstone or re-scan (now-empty) attendance for no reason.
+            if (confirmed && dao.getByIdOnce(member.id) != null) {
+                // Same delete-and-log steps as [deleteWithFiles]'s DB
+                // portion, inlined here rather than called (deleteWithFiles
+                // takes changeLogMutex itself, which this function already
+                // holds) so archive-create and member-delete stay in the
+                // one transaction above.
+                dao.delete(member)
+                val attendanceGlobalIds = attendanceDao.globalIdsForMember(member.id)
+                attendanceDao.deleteForMember(member.id)
+                attendanceGlobalIds.forEach { globalId ->
+                    changeLogDao.insert(
+                        SyncChangeLogEntry(
+                            changeId = UUID.randomUUID().toString(),
+                            entityType = ENTITY_ATTENDANCE,
+                            recordId = globalId,
+                            operation = OP_DELETE,
+                            originDeviceId = deviceId,
+                            seq = nextSeq(deviceId),
+                            timestampMillis = System.currentTimeMillis(),
+                            fieldsJson = null
+                        )
+                    )
+                }
+                logMemberDeleted(member.id)
+            }
+            confirmed
         }
-        if (!archiveConfirmed) return false
-        deleteWithFiles(member)
-        return true
+        if (!archiveConfirmed) return@withLock false
+        deletePhoto(member.id)
+        deleteIdProofPhoto(member.id)
+        true
     }
 
     /**
@@ -508,7 +665,23 @@ class Repository(private val context: Context) {
      * attendance history (none of that was preserved at archive time), so
      * the owner completes the actual renewal through the existing Renew
      * screen exactly like any other expired member. Removes the archive
-     * row once the restored member is safely saved.
+     * row once the restored member is safely saved, and (Device Sync fix
+     * #1) logs that removal as an ARCHIVED_MEMBER/[OP_DELETE] tombstone so
+     * a paired device removes the same now-stale archive row rather than
+     * ending up with both a restored Member (from [save]'s own MEMBER/[OP_ADD])
+     * and a leftover ArchivedMember for the same person.
+     *
+     * NOTE (see [recomputeAndApplyMember]'s doc): a MEMBER/[OP_DELETE]
+     * tombstone, once synced, permanently prevents that same recordId from
+     * reappearing on other devices - an existing property of the Member
+     * sync model this patch doesn't change. Since archiving a member
+     * writes exactly that kind of tombstone for [archived.originalMemberId]
+     * (see [archiveMember]), a peer that already received the archival's
+     * tombstone before this restore's new ADD may not re-materialize the
+     * member even once this ADD arrives; this is a pre-existing limitation
+     * of the tombstone-wins-permanently rule, not something introduced or
+     * fixable here without redesigning that rule (out of scope - see the
+     * task's "do not invent a new conflict-resolution system").
      */
     suspend fun restoreArchivedMember(archived: ArchivedMember): Member {
         val restored = Member(
@@ -527,6 +700,21 @@ class Repository(private val context: Context) {
         )
         save(restored)
         archivedDao.deleteById(archived.originalMemberId)
+        changeLogMutex.withLock {
+            val deviceId = syncPrefs.deviceId
+            changeLogDao.insert(
+                SyncChangeLogEntry(
+                    changeId = UUID.randomUUID().toString(),
+                    entityType = ENTITY_ARCHIVED_MEMBER,
+                    recordId = archived.originalMemberId,
+                    operation = OP_DELETE,
+                    originDeviceId = deviceId,
+                    seq = nextSeq(deviceId),
+                    timestampMillis = System.currentTimeMillis(),
+                    fieldsJson = null
+                )
+            )
+        }
         return restored
     }
 

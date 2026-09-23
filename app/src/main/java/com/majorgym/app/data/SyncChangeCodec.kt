@@ -169,6 +169,55 @@ object SyncChangeCodec {
         )
     }
 
+    // ---------- 30-Day Expired Member Archive (Device Sync fix #1) ----------
+
+    private const val K_A_NAME = "name"
+    private const val K_A_PHONE = "phone"
+    private const val K_A_JOINED = "joinedMillis"
+    private const val K_A_LAST_PLAN = "lastPlan"
+    private const val K_A_LAST_FEE = "lastFee"
+    private const val K_A_LAST_START = "lastStartMillis"
+    private const val K_A_LAST_EXPIRY = "lastExpiryMillis"
+    private const val K_A_ID_PROOF = "idProof"
+    private const val K_A_ARCHIVED_AT = "archivedAtMillis"
+
+    /** Full snapshot of an [ArchivedMember] for its ADD change-log entry -
+     *  there's no partial/UPDATE variant since an archive row is never
+     *  edited (see [ENTITY_ARCHIVED_MEMBER]'s doc). Deliberately carries no
+     *  photo/fingerprint bytes: [ArchivedMember] never had any to begin
+     *  with (see that class's doc). */
+    fun encodeArchivedMember(a: ArchivedMember): JSONObject = JSONObject().apply {
+        put(K_A_NAME, a.name)
+        put(K_A_PHONE, a.phone)
+        put(K_A_JOINED, a.joinedMillis)
+        put(K_A_LAST_PLAN, a.lastPlan)
+        put(K_A_LAST_FEE, a.lastFee)
+        put(K_A_LAST_START, a.lastStartMillis)
+        put(K_A_LAST_EXPIRY, a.lastExpiryMillis)
+        put(K_A_ID_PROOF, a.idProof)
+        put(K_A_ARCHIVED_AT, a.archivedAtMillis)
+    }
+
+    /** Rebuilds an [ArchivedMember] from a synced ADD entry's fields - see
+     *  [Repository.recomputeAndApplyArchivedMember]. Returns null only if the
+     *  payload is too malformed to use (missing even a name), same
+     *  one-bad-record-can't-break-sync convention as [decodeMemberFields]. */
+    fun decodeArchivedMemberFields(recordId: String, fields: JSONObject): ArchivedMember? {
+        if (!fields.has(K_A_NAME)) return null
+        return ArchivedMember(
+            originalMemberId = recordId,
+            name = fields.optString(K_A_NAME, ""),
+            phone = fields.optString(K_A_PHONE, ""),
+            joinedMillis = fields.optLong(K_A_JOINED, 0L),
+            lastPlan = fields.optString(K_A_LAST_PLAN, ""),
+            lastFee = fields.optDouble(K_A_LAST_FEE, 0.0),
+            lastStartMillis = fields.optLong(K_A_LAST_START, 0L),
+            lastExpiryMillis = fields.optLong(K_A_LAST_EXPIRY, 0L),
+            idProof = fields.optString(K_A_ID_PROOF, ""),
+            archivedAtMillis = fields.optLong(K_A_ARCHIVED_AT, 0L)
+        )
+    }
+
     // ---------- Wire format (version vectors + change batches) ----------
 
     fun encodeVersionVector(v: Map<String, Long>): JSONObject =

@@ -70,4 +70,17 @@ interface SyncChangeLogDao {
             ")"
     )
     suspend fun attendanceIdsMissingAddHistory(): List<String>
+
+    /** Same as [memberIdsMissingAddHistory]/[attendanceIdsMissingAddHistory],
+     *  for 30-Day Expired Member Archive rows (Device Sync fix #1) keyed by
+     *  [ArchivedMember.originalMemberId] - covers archive rows that already
+     *  existed locally (created before this fix, or via a backup restore)
+     *  and so would otherwise never reach a peer that hasn't synced with
+     *  this device before. */
+    @Query(
+        "SELECT am.originalMemberId FROM archived_members am WHERE NOT EXISTS (" +
+            "SELECT 1 FROM sync_change_log s WHERE s.entityType = 'ARCHIVED_MEMBER' AND s.operation = 'ADD' AND s.recordId = am.originalMemberId" +
+            ")"
+    )
+    suspend fun archivedMemberIdsMissingAddHistory(): List<String>
 }

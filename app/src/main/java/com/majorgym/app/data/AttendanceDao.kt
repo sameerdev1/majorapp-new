@@ -59,4 +59,21 @@ interface AttendanceDao {
      *  so a member is never left with orphaned attendance records. */
     @Query("DELETE FROM attendance_records WHERE memberId = :memberId")
     suspend fun deleteForMember(memberId: String)
+
+    /** Device Sync fix #2: every currently-retained record's stable
+     *  [AttendanceRecord.globalId] for one member - read BEFORE
+     *  [deleteForMember] so [Repository.deleteWithFiles] can log one
+     *  ATTENDANCE/[OP_DELETE] change-log entry per id, since once the rows
+     *  are gone there's nothing left to enumerate. */
+    @Query("SELECT globalId FROM attendance_records WHERE memberId = :memberId")
+    suspend fun globalIdsForMember(memberId: String): List<String>
+
+    /** Device Sync fix #2: applies one attendance-deletion change learned
+     *  from a synced device (see Repository.recomputeAndApplyAttendance).
+     *  A plain indexed delete on the unique [AttendanceRecord.globalId] -
+     *  a no-op (0 rows affected) if the record was already removed or never
+     *  existed on this device, so replaying the same deletion any number of
+     *  times is always safe. */
+    @Query("DELETE FROM attendance_records WHERE globalId = :globalId")
+    suspend fun deleteByGlobalId(globalId: String)
 }

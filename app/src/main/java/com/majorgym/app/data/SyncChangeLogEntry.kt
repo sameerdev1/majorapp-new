@@ -7,6 +7,13 @@ import androidx.room.PrimaryKey
 /** [SyncChangeLogEntry.entityType] values. */
 const val ENTITY_MEMBER = "MEMBER"
 const val ENTITY_ATTENDANCE = "ATTENDANCE"
+/** 30-Day Expired Member Archive sync (Fix #1) - [SyncChangeLogEntry.recordId]
+ *  is the [ArchivedMember.originalMemberId]. Uses the same [OP_ADD]/[OP_DELETE]
+ *  operations as everything else: ADD = archived (see [Repository.archiveMember]),
+ *  DELETE = restored back to a normal member (see [Repository.restoreArchivedMember]).
+ *  There is no UPDATE - an archive row is never edited, only created once or
+ *  removed on restore. */
+const val ENTITY_ARCHIVED_MEMBER = "ARCHIVED_MEMBER"
 
 /** [SyncChangeLogEntry.operation] values. */
 const val OP_ADD = "ADD"
