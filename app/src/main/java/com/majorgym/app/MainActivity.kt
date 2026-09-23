@@ -61,6 +61,7 @@ class MainActivity : ComponentActivity() {
                 var showSplash by remember { mutableStateOf(true) }
                 var screen by remember { mutableStateOf<Screen>(Screen.Dashboard) }
                 val members by vm.members.collectAsState()
+                val archivedMembers by vm.archivedMembers.collectAsState()
                 // Feature 1 (Due Members): a payment-status filter, NOT a
                 // membership-status replacement - a member can be both
                 // Active and Due at once, so this deliberately overlaps with
@@ -173,7 +174,7 @@ class MainActivity : ComponentActivity() {
                             label = "screenTransition"
                         ) { targetScreen ->
                             when (val s = targetScreen) {
-                                Screen.Dashboard -> DashboardScreen(members, dueMembers.size) { screen = it }
+                                Screen.Dashboard -> DashboardScreen(members, dueMembers.size, archivedMembers.size) { screen = it }
                                 Screen.Members -> MembersScreen(members) { screen = it }
                                 Screen.Add -> AddEditMemberScreen(vm, null) { screen = it }
                                 is Screen.Edit -> {
@@ -228,6 +229,8 @@ class MainActivity : ComponentActivity() {
                                     val m = members.find { it.id == s.id }
                                     if (m != null) EnrollFingerprintScreen(m, vm, s.returnTo) { screen = it }
                                 }
+                                Screen.ExpiredArchive -> ExpiredArchiveScreen(archivedMembers) { screen = it }
+                                is Screen.ArchivedMemberDetail -> ArchivedMemberDetailScreen(s.id, vm) { screen = it }
                             }
                         }
                         BottomNav(screen, modifier = Modifier.align(Alignment.BottomCenter)) { screen = it }

@@ -7,11 +7,16 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
-@Database(entities = [Member::class, AttendanceRecord::class, SyncChangeLogEntry::class], version = 11, exportSchema = false)
+@Database(
+    entities = [Member::class, AttendanceRecord::class, SyncChangeLogEntry::class, ArchivedMember::class],
+    version = 12,
+    exportSchema = false
+)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun memberDao(): MemberDao
     abstract fun attendanceDao(): AttendanceDao
     abstract fun syncChangeLogDao(): SyncChangeLogDao
+    abstract fun archivedMemberDao(): ArchivedMemberDao
 
     companion object {
         @Volatile private var INSTANCE: AppDatabase? = null
@@ -166,6 +171,33 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** 30-Day Expired Member Archive: a brand-new, additive table - see
+         *  [ArchivedMember]. Doesn't touch the members/attendance/sync-log
+         *  tables at all, so every existing row on an updating device is
+         *  completely unaffected. */
+        private val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS archived_members (
+                        originalMemberId TEXT PRIMARY KEY NOT NULL,
+                        name TEXT NOT NULL,
+                        phone TEXT NOT NULL,
+                        joinedMillis INTEGER NOT NULL,
+                        lastPlan TEXT NOT NULL,
+                        lastFee REAL NOT NULL,
+                        lastStartMillis INTEGER NOT NULL,
+                        lastExpiryMillis INTEGER NOT NULL,
+                        idProof TEXT NOT NULL DEFAULT '',
+                        archivedAtMillis INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_archived_members_phone ON archived_members(phone)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_archived_members_name ON archived_members(name)")
+            }
+        }
+
         fun get(context: Context): AppDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -174,7 +206,8 @@ abstract class AppDatabase : RoomDatabase() {
                     "major_gym.db"
                 ).addMigrations(
                     MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6,
-                    MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11
+                    MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11,
+                    MIGRATION_11_12
                 ).build().also { INSTANCE = it }
             }
     }

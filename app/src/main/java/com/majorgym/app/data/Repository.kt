@@ -3,6 +3,7 @@ package com.majorgym.app.data
 import android.content.Context
 import android.net.Uri
 import android.util.Log
+import androidx.room.withTransaction
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
@@ -37,9 +38,12 @@ const val ATTENDANCE_RETENTION_MONTHS = 4L
 class Repository(private val context: Context) {
     /** Backup History (date/time-only log, see [BackupHistoryPrefs]'s own doc). */
     val backupHistory = BackupHistoryPrefs(context)
-    private val dao = AppDatabase.get(context).memberDao()
-    private val attendanceDao = AppDatabase.get(context).attendanceDao()
-    private val changeLogDao = AppDatabase.get(context).syncChangeLogDao()
+    private val db = AppDatabase.get(context)
+    private val dao = db.memberDao()
+    private val attendanceDao = db.attendanceDao()
+    private val changeLogDao = db.syncChangeLogDao()
+    /** 30-Day Expired Member Archive - see [ArchivedMember]/[archiveMember]. */
+    private val archivedDao = db.archivedMemberDao()
     /** Only used to read this device's own stable id (see [SyncPrefs.deviceId])
      *  when writing change-log entries - completely independent of whatever
      *  SyncManager/MembersViewModel's own SyncPrefs instance is doing;
@@ -444,6 +448,96 @@ class Repository(private val context: Context) {
         logMemberDeleted(member.id)
     }
 
+    // ---------- 30-Day Expired Member Archive ----------
+
+    /** All archived members, newest-archived first - backs the Expired
+     *  Archive screen. */
+    fun observeArchivedMembers() = archivedDao.getAll()
+    suspend fun archivedMembersOnce(): List<ArchivedMember> = archivedDao.getAllOnce()
+
+    /**
+     * Archives one expired member: creates the lightweight [ArchivedMember]
+     * record (idempotent - a member already archived is left as-is), then -
+     * only once that record is confirmed written - removes the operational
+     * [Member] row via [deleteWithFiles], which already deletes the
+     * member's attendance history and logs the sync tombstone, so a
+     * deletion is never propagated to other synced devices without the
+     * archive existing first. The create+confirm step runs inside a Room
+     * transaction so a process death mid-write can never leave a half
+     * -written archive row behind.
+     *
+     * Returns false (member left completely untouched) if the archive
+     * couldn't be confirmed - callers must never proceed to delete the
+     * member in that case.
+     */
+    suspend fun archiveMember(member: Member): Boolean {
+        val archiveConfirmed = db.withTransaction {
+            if (archivedDao.getByIdOnce(member.id) == null) {
+                val planMonths = PLAN_MONTHS[member.plan]
+                val lastStart = if (planMonths != null) {
+                    addMonthsMillis(member.expiryMillis, -planMonths)
+                } else {
+                    member.joinedMillis
+                }
+                archivedDao.insertIgnoringDuplicate(
+                    ArchivedMember(
+                        originalMemberId = member.id,
+                        name = member.name,
+                        phone = member.phone,
+                        joinedMillis = member.joinedMillis,
+                        lastPlan = member.plan,
+                        lastFee = member.fee,
+                        lastStartMillis = lastStart,
+                        lastExpiryMillis = member.expiryMillis,
+                        idProof = member.idProof,
+                        archivedAtMillis = System.currentTimeMillis()
+                    )
+                )
+            }
+            archivedDao.getByIdOnce(member.id) != null
+        }
+        if (!archiveConfirmed) return false
+        deleteWithFiles(member)
+        return true
+    }
+
+    /**
+     * Restores an archived member back into the normal operational Members
+     * table (section 11: Restore / Renew) - as an expired member (their
+     * last known plan/fee/expiry), with no photo, fingerprint, QR, or
+     * attendance history (none of that was preserved at archive time), so
+     * the owner completes the actual renewal through the existing Renew
+     * screen exactly like any other expired member. Removes the archive
+     * row once the restored member is safely saved.
+     */
+    suspend fun restoreArchivedMember(archived: ArchivedMember): Member {
+        val restored = Member(
+            id = archived.originalMemberId,
+            name = archived.name,
+            phone = archived.phone,
+            photoPath = null,
+            plan = archived.lastPlan,
+            fee = archived.lastFee,
+            joinedMillis = archived.joinedMillis,
+            expiryMillis = archived.lastExpiryMillis,
+            historyJson = "[]",
+            updatedAtMillis = System.currentTimeMillis(),
+            idProof = archived.idProof,
+            createdAtMillis = archived.joinedMillis
+        )
+        save(restored)
+        archivedDao.deleteById(archived.originalMemberId)
+        return restored
+    }
+
+    /** Folds archived members into a backup (section 12) - preserved
+     *  customer history, same as the operational members. Never includes
+     *  attendance (already permanently deleted at archive time). */
+    suspend fun restoreArchivedMembersFromBackup(records: List<ArchivedMember>) {
+        if (records.isEmpty()) return
+        archivedDao.insertAllIgnoringDuplicates(records)
+    }
+
     /** Removes a member's profile photo file, if any (safe no-op if there isn't one). */
     fun deletePhoto(memberId: String) {
         val f = safePhotoFile(File(context.filesDir, "photos"), memberId) ?: return
@@ -592,7 +686,7 @@ class Repository(private val context: Context) {
      *  [safetyBackupFile] using the exact same generator/compressor the real
      *  backups use, so it's just as restorable if it's ever needed by hand. */
     suspend fun writeSafetyBackupSnapshot() {
-        val json = BackupManager.exportJson(context, allOnce(), attendanceAllOnce())
+        val json = BackupManager.exportJson(context, allOnce(), attendanceAllOnce(), archivedMembersOnce())
         BackupZip.write(json, safetyBackupFile())
     }
 }

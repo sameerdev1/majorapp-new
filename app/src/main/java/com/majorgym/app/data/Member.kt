@@ -57,14 +57,13 @@ data class Member(
      *  check-in against the member the front-desk staff has already selected. */
     val fingerprintTemplate: ByteArray? = null,
     /**
-     * Epoch millis of when this member first became eligible for automatic
-     * deletion (expired 4+ months, never renewed since — see
-     * MembershipCleanupWorker). Null means "not currently pending." Renewing
-     * clears this automatically, since renewal moves [expiryMillis] into the
-     * future and the member stops being eligible. This — combined with
-     * [archived] — is the safeguard against a one-off clock glitch or sync
-     * hiccup causing an instant, irreversible deletion: a member has to stay
-     * eligible across two separate daily checks before they're actually removed.
+     * No longer written or read by MembershipCleanupWorker, which now
+     * implements the 30-Day Expired Member Archive instead of the old
+     * two-step "flag then delete after 4 months" safeguard this field
+     * originally supported. Left in place (rather than dropped, which would
+     * need its own migration) purely so old rows/backups that still carry a
+     * value continue to read in safely; nothing in the app currently acts
+     * on it.
      */
     val pendingDeletionMillis: Long? = null
 )

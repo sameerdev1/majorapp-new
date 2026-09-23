@@ -56,4 +56,12 @@ sealed class Screen {
     /** Reached by tapping an attendance record on [AttendanceLogs]: shows
      *  that one member's recent day-by-day attendance history. */
     data class AttendanceHistory(val memberId: String) : Screen()
+    /** 30-Day Expired Member Archive: reached from the Dashboard's Expired
+     *  Archive card (directly below Due Members). Lists members archived
+     *  after being expired 30+ days, searchable by name/phone. */
+    data object ExpiredArchive : Screen()
+    /** One archived member's last-known membership info, reached by tapping
+     *  a row on [ExpiredArchive]. Offers Restore / Renew back into the
+     *  normal Members system. */
+    data class ArchivedMemberDetail(val id: String) : Screen()
 }

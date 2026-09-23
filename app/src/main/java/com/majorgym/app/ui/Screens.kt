@@ -399,7 +399,7 @@ fun DatePickerField(date: LocalDate, onChange: (LocalDate) -> Unit) {
 
 @Composable
 @OptIn(ExperimentalFoundationApi::class)
-fun DashboardScreen(members: List<Member>, dueMembersCount: Int = 0, onNavigate: (Screen) -> Unit) {
+fun DashboardScreen(members: List<Member>, dueMembersCount: Int = 0, archivedMembersCount: Int = 0, onNavigate: (Screen) -> Unit) {
     val active = members.count { statusOf(it.expiryMillis) == MemberStatus.ACTIVE }
     val expiring = members.count { statusOf(it.expiryMillis) == MemberStatus.EXPIRING }
     val expired = members.count { statusOf(it.expiryMillis) == MemberStatus.EXPIRED }
@@ -518,6 +518,44 @@ fun DashboardScreen(members: List<Member>, dueMembersCount: Int = 0, onNavigate:
                     Text(dueMembersCount.toString(), color = GymColors.Danger, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.width(8.dp))
                 }
+                Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = GymColors.TextFaint)
+            }
+            Spacer(Modifier.height(14.dp))
+        }
+        item {
+            // Section 20: Expired Archive card - placed directly below Due
+            // Members, same visual style, its own icon/color so it's never
+            // confused with Due. Its count is the archived_members table
+            // size and is deliberately never folded into any of the
+            // Total/Active/Expiring/Expired/Due counts above (section 8/9).
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(GymColors.SurfaceCard)
+                    .border(1.dp, GymColors.Border, RoundedCornerShape(16.dp))
+                    .clickable { onNavigate(Screen.ExpiredArchive) }
+                    .padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(GymColors.Accent.copy(alpha = 0.15f))
+                        .padding(10.dp)
+                ) {
+                    Icon(Icons.Filled.Archive, contentDescription = null, tint = GymColors.Accent, modifier = Modifier.size(22.dp))
+                }
+                Spacer(Modifier.width(14.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("Expired Archive", color = GymColors.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "Members expired for more than 30 days",
+                        color = GymColors.TextFaint, fontSize = 12.sp, modifier = Modifier.padding(top = 2.dp)
+                    )
+                }
+                Text(archivedMembersCount.toString(), color = GymColors.Accent, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.width(8.dp))
                 Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = GymColors.TextFaint)
             }
             Spacer(Modifier.height(14.dp))

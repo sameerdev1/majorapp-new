@@ -26,8 +26,13 @@ private const val TAG = "BackupManager"
  *  (Change 2) - see [exportJson]'s attendance parameter and [importAttendance].
  *  A backup with no attendance key (any older version, or a device-sync
  *  payload that never included one) simply has no attendance to restore;
- *  nothing about member restore is affected either way. */
-const val BACKUP_SCHEMA_VERSION = 4
+ *  nothing about member restore is affected either way.
+ *
+ *  v5: an optional top-level "archivedMembers" array is added (30-Day
+ *  Expired Member Archive) - see [exportJson]'s archivedMembers parameter
+ *  and [importArchivedMembers]. A backup with no such key (any older
+ *  version) simply has no archived members to restore. */
+const val BACKUP_SCHEMA_VERSION = 5
 
 /**
  * Exports/imports the full gym database - including member photos, embedded
@@ -64,7 +69,12 @@ object BackupManager {
      * is completely unaffected. Only the local ZIP backup path (Change 2)
      * passes real attendance rows in.
      */
-    fun exportJson(context: Context, members: List<Member>, attendance: List<AttendanceRecord> = emptyList()): String {
+    fun exportJson(
+        context: Context,
+        members: List<Member>,
+        attendance: List<AttendanceRecord> = emptyList(),
+        archivedMembers: List<ArchivedMember> = emptyList()
+    ): String {
         val arr = JSONArray()
         members.forEach { m ->
             val o = JSONObject()
@@ -128,13 +138,68 @@ object BackupManager {
             )
         }
 
+        // 30-Day Expired Member Archive (section 12): lightweight fields
+        // only - no attendance, no photo, nothing operational.
+        val archivedArr = JSONArray()
+        archivedMembers.forEach { a ->
+            archivedArr.put(
+                JSONObject().apply {
+                    put("originalMemberId", a.originalMemberId)
+                    put("name", a.name)
+                    put("phone", a.phone)
+                    put("joinedMillis", a.joinedMillis)
+                    put("lastPlan", a.lastPlan)
+                    put("lastFee", a.lastFee)
+                    put("lastStartMillis", a.lastStartMillis)
+                    put("lastExpiryMillis", a.lastExpiryMillis)
+                    put("idProof", a.idProof)
+                    put("archivedAtMillis", a.archivedAtMillis)
+                }
+            )
+        }
+
         return JSONObject().apply {
             put("app", "MajorGym")
             put("schemaVersion", BACKUP_SCHEMA_VERSION)
             put("exportedAt", System.currentTimeMillis())
             put("members", arr)
             put("attendance", attendanceArr)
+            put("archivedMembers", archivedArr)
         }.toString()
+    }
+
+    /** Reads the optional "archivedMembers" array (v5+). Missing key (any
+     *  older backup) or a malformed individual row just yields no/fewer
+     *  archived members - never a failure, and never affects member or
+     *  attendance restore, which are parsed separately. */
+    fun importArchivedMembers(json: String): List<ArchivedMember> {
+        val root = JSONObject(json)
+        val arr = root.optJSONArray("archivedMembers") ?: JSONArray()
+        val result = mutableListOf<ArchivedMember>()
+        for (i in 0 until arr.length()) {
+            val o = arr.optJSONObject(i) ?: continue
+            val id = o.optString("originalMemberId", "")
+            if (id.isBlank()) continue
+            try {
+                result.add(
+                    ArchivedMember(
+                        originalMemberId = id,
+                        name = o.optString("name", ""),
+                        phone = o.optString("phone", ""),
+                        joinedMillis = o.optLong("joinedMillis", 0L),
+                        lastPlan = o.optString("lastPlan", ""),
+                        lastFee = o.optDouble("lastFee", 0.0),
+                        lastStartMillis = o.optLong("lastStartMillis", 0L),
+                        lastExpiryMillis = o.optLong("lastExpiryMillis", 0L),
+                        idProof = o.optString("idProof", ""),
+                        archivedAtMillis = o.optLong("archivedAtMillis", System.currentTimeMillis())
+                    )
+                )
+            } catch (e: Exception) {
+                Log.w(TAG, "Skipping malformed archived member record $id: ${e.message}")
+            }
+        }
+        return result
     }
 
     /**

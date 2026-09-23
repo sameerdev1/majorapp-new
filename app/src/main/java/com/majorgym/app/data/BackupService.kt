@@ -14,7 +14,7 @@ sealed class RestoreOutcome {
      *  repeated restore of the same backup can legitimately report 0 here
      *  even on success, since duplicates of already-present rows are skipped
      *  by design, not an error. */
-    data class Success(val recordsRestored: Int, val attendanceRestored: Int = 0) : RestoreOutcome()
+    data class Success(val recordsRestored: Int, val attendanceRestored: Int = 0, val archivedRestored: Int = 0) : RestoreOutcome()
     /** The file itself is bad - corrupt zip, missing backup.json, invalid JSON,
      *  unsupported schema. Nothing was touched. */
     data class InvalidBackup(val reason: String) : RestoreOutcome()
@@ -48,7 +48,9 @@ object BackupService {
                 // Generator - Change 2: attendance rows ride along with members
                 // in the same backup.json, using the existing exportJson entry
                 // point rather than a separate backup system.
-                val json = BackupManager.exportJson(context, repository.allOnce(), repository.attendanceAllOnce())
+                val json = BackupManager.exportJson(
+                    context, repository.allOnce(), repository.attendanceAllOnce(), repository.archivedMembersOnce()
+                )
                 // Compressor
                 BackupZip.write(json, destFile)
                 // Validator - reopen the file we just wrote and confirm it's
@@ -139,7 +141,13 @@ object BackupService {
                 // backup) are silently skipped - see Repository.restoreAttendance.
                 val incomingAttendance = BackupManager.importAttendance(json)
                 repository.restoreAttendance(incomingAttendance)
-                RestoreOutcome.Success(incoming.size, incomingAttendance.size)
+                // 30-Day Expired Member Archive (section 12): merged the same
+                // idempotent way - never turns an archived record into an
+                // active member, and never restores its (already deleted)
+                // attendance history.
+                val incomingArchived = BackupManager.importArchivedMembers(json)
+                repository.restoreArchivedMembersFromBackup(incomingArchived)
+                RestoreOutcome.Success(incoming.size, incomingAttendance.size, incomingArchived.size)
             } catch (e: Exception) {
                 RestoreOutcome.RestoreFailed(
                     e.message ?: "Restore could not be completed. Your existing data has not been changed."

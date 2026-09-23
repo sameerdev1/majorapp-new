@@ -4,6 +4,7 @@ import android.app.Application
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.majorgym.app.data.ArchivedMember
 import com.majorgym.app.data.AttendanceRecord
 import com.majorgym.app.data.BackupService
 import com.majorgym.app.data.Member
@@ -35,6 +36,25 @@ class MembersViewModel(app: Application) : AndroidViewModel(app) {
 
     fun save(member: Member) = viewModelScope.launch { repo.save(member) }
     fun delete(member: Member) = viewModelScope.launch { repo.deleteWithFiles(member) }
+
+    // ---------- 30-Day Expired Member Archive ----------
+
+    val archivedMembers: StateFlow<List<ArchivedMember>> = repo.observeArchivedMembers()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    /** Restore / Renew (section 11): recreates the normal operational Member
+     *  record (expired, no attendance history) and removes the archive row.
+     *  [onResult] receives the restored Member on success, or an error
+     *  message (e.g. a phone-number conflict) on failure - nothing is left
+     *  half-done either way since [Repository.restoreArchivedMember] only
+     *  deletes the archive row after the member save itself succeeds. */
+    fun restoreArchivedMember(archived: ArchivedMember, onResult: (Member?, String?) -> Unit) = viewModelScope.launch {
+        try {
+            onResult(repo.restoreArchivedMember(archived), null)
+        } catch (e: Exception) {
+            onResult(null, e.message ?: "This member couldn't be restored.")
+        }
+    }
 
     /** Stores/replaces a member's fingerprint template captured via [com.majorgym.app.data.FingerprintScanner]. */
     fun saveFingerprintTemplate(member: Member, template: ByteArray) = viewModelScope.launch {
