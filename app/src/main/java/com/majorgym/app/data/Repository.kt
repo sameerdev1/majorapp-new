@@ -280,24 +280,52 @@ class Repository(private val context: Context) {
      * Derives record [recordId]'s current correct state by replaying its
      * ENTIRE known change history (oldest first) and applies that to the
      * local database - never trusts a single incoming change in isolation.
-     * A DELETE anywhere in the history wins permanently: once every device
-     * agrees a member was deleted, no update (older or newer, already known
-     * or arriving later from a device that was offline) can bring them back
-     * (fix #3: "delete vs update... a deleted Member must not reappear").
-     * Otherwise, starting from the ADD snapshot, each UPDATE's changed
-     * fields are applied in order - so the field that was changed *last*
-     * (by real timestamp, with originDeviceId/seq as a tiebreak every device
-     * resolves identically) is what wins for that field specifically, while
-     * a different field changed elsewhere is untouched (fix #3: "preserve
-     * BOTH changes"). If this device doesn't have the ADD entry yet (it
-     * arrived via a device that hasn't relayed it yet), nothing is applied
-     * this round - the UPDATE(s) already sit safely in the log and will be
-     * replayed correctly the moment the ADD does arrive.
+     *
+     * Lifecycle ordering (multi-device archive/restore tombstone fix): only
+     * ADD and DELETE ever redefine whether the member currently exists - an
+     * UPDATE never does. [entries] already comes back ordered oldest-first
+     * by the same deterministic rule used everywhere else in this replay
+     * (real timestamp first, then (originDeviceId, seq) as a tiebreak every
+     * device resolves identically - see [SyncChangeLogDao.getForRecord]), so
+     * the LAST ADD-or-DELETE in that list - not merely "any DELETE at all,
+     * anywhere" - is the lifecycle event that actually happened most
+     * recently, and that is what wins.
+     *
+     * This still makes a plain delete permanent, exactly as before: a
+     * plain delete has no later ADD to lose to, so it's always the last
+     * lifecycle entry. What it fixes is the case where a member IS later
+     * re-added under the same id - concretely, [restoreArchivedMember]
+     * logging a new MEMBER/[OP_ADD] for a member whose earlier
+     * [archiveMember] call already logged a MEMBER/[OP_DELETE] tombstone
+     * for that same id. A genuinely later RESTORE now correctly beats a
+     * genuinely older archive DELETE, and - symmetrically - a genuinely
+     * later DELETE still beats a genuinely older, late-arriving RESTORE,
+     * deterministically on every device, regardless of the order these
+     * events actually arrive over the wire (duplicate/offline/out-of-order
+     * delivery all resolve to the same answer since this only ever looks at
+     * timestamp/seq, never arrival order).
+     *
+     * Once the winning lifecycle's starting ADD is found, only UPDATEs from
+     * that SAME lifecycle (i.e. at or after it in the ordered list) are
+     * folded in - an edit made before an earlier archive/delete must not
+     * bleed into a later restored record. Within that lifecycle, each
+     * UPDATE's changed fields are still applied oldest-to-newest so the
+     * field changed *last* wins per-field while an untouched field from
+     * elsewhere is preserved (fix #3: "preserve BOTH changes"). If this
+     * device doesn't have the winning ADD entry yet (it arrived via a
+     * device that hasn't relayed it yet), nothing is applied this round -
+     * the UPDATE(s) already sit safely in the log and will be replayed
+     * correctly the moment the ADD does arrive.
      */
     private suspend fun recomputeAndApplyMember(recordId: String) {
         val entries = changeLogDao.getForRecord(ENTITY_MEMBER, recordId)
         if (entries.isEmpty()) return
-        if (entries.any { it.operation == OP_DELETE }) {
+
+        val lastLifecycleIndex = entries.indexOfLast { it.operation == OP_ADD || it.operation == OP_DELETE }
+        if (lastLifecycleIndex == -1) return
+        val lastLifecycleEntry = entries[lastLifecycleIndex]
+
+        if (lastLifecycleEntry.operation == OP_DELETE) {
             if (dao.getByIdOnce(recordId) != null) {
                 deletePhoto(recordId)
                 deleteIdProofPhoto(recordId)
@@ -305,15 +333,20 @@ class Repository(private val context: Context) {
             }
             return
         }
-        val addEntry = entries.firstOrNull { it.operation == OP_ADD } ?: return
-        val merged = JSONObject(addEntry.fieldsJson ?: "{}")
-        entries.filter { it.operation == OP_UPDATE }.forEach { u ->
+
+        val merged = JSONObject(lastLifecycleEntry.fieldsJson ?: "{}")
+        val sameLifecycleUpdates = entries.subList(lastLifecycleIndex + 1, entries.size)
+            .filter { it.operation == OP_UPDATE }
+        sameLifecycleUpdates.forEach { u ->
             u.fieldsJson?.let { js ->
                 val changed = JSONObject(js)
                 changed.keys().forEach { k -> merged.put(k, changed.get(k)) }
             }
         }
-        val latestTimestamp = entries.maxOf { it.timestampMillis }
+        val latestTimestamp = maxOf(
+            lastLifecycleEntry.timestampMillis,
+            sameLifecycleUpdates.maxOfOrNull { it.timestampMillis } ?: lastLifecycleEntry.timestampMillis
+        )
         val member = SyncChangeCodec.decodeMemberFields(context, recordId, merged, latestTimestamp) ?: return
         try {
             dao.upsert(member.encryptedForStorage())
@@ -361,11 +394,12 @@ class Repository(private val context: Context) {
     /**
      * Device Sync fix #1: applies a synced 30-Day Expired Member Archive
      * change for [recordId] (an [ArchivedMember.originalMemberId]). Mirrors
-     * [recomputeAndApplyMember]'s replay approach: a DELETE anywhere in the
-     * history (the archive was restored - see [restoreArchivedMember]) wins
-     * and removes the local archive row; otherwise the ADD snapshot is
-     * applied via the same idempotent [ArchivedMemberDao.insertIgnoringDuplicate]
-     * the local archive path already uses.
+     * [recomputeAndApplyMember]'s replay approach: the chronologically LATEST
+     * ADD-or-DELETE decides whether the archive row currently exists - DELETE
+     * (the archive was restored - see [restoreArchivedMember]) removes the
+     * local archive row; ADD applies its snapshot via the same idempotent
+     * [ArchivedMemberDao.insertIgnoringDuplicate] the local archive path
+     * already uses.
      *
      * Deliberately touches ONLY the archived_members table - never creates
      * or reactivates a row in the operational members table, so a received
@@ -375,17 +409,40 @@ class Repository(private val context: Context) {
      * their own MEMBER/[OP_DELETE] and ATTENDANCE/[OP_DELETE] entries
      * (see [deleteWithFiles]), applied independently via
      * [recomputeAndApplyMember]/[recomputeAndApplyAttendance].
+     *
+     * Same lifecycle-ordering fix as [recomputeAndApplyMember], for the
+     * same reason: a member can be archived, restored (which logs an
+     * ARCHIVED_MEMBER/[OP_DELETE] for the old archive row), and later
+     * archived again under the same [ArchivedMember.originalMemberId] -
+     * e.g. their renewed membership later expires too - producing an
+     * ADD/DELETE/ADD history for this same recordId. The chronologically
+     * LAST ADD-or-DELETE (not "any DELETE at all") decides whether the
+     * archive row currently exists, so a stale restore-DELETE can't
+     * override a genuinely later re-archive ADD, and vice versa.
      */
     private suspend fun recomputeAndApplyArchivedMember(recordId: String) {
         val entries = changeLogDao.getForRecord(ENTITY_ARCHIVED_MEMBER, recordId)
         if (entries.isEmpty()) return
-        if (entries.any { it.operation == OP_DELETE }) {
+
+        val lastLifecycleIndex = entries.indexOfLast { it.operation == OP_ADD || it.operation == OP_DELETE }
+        if (lastLifecycleIndex == -1) return
+        val lastLifecycleEntry = entries[lastLifecycleIndex]
+
+        if (lastLifecycleEntry.operation == OP_DELETE) {
             archivedDao.deleteById(recordId)
             return
         }
-        val addEntry = entries.firstOrNull { it.operation == OP_ADD } ?: return
-        val fields = JSONObject(addEntry.fieldsJson ?: return)
+        val fields = JSONObject(lastLifecycleEntry.fieldsJson ?: return)
         val archived = SyncChangeCodec.decodeArchivedMemberFields(recordId, fields) ?: return
+        // [insertIgnoringDuplicate] silently no-ops if a row for this id is
+        // already present - correct for the common case (this really is the
+        // very first, only-ever ADD), but wrong here if a STALE row from an
+        // earlier archive/restore lifecycle for the same id is still sitting
+        // in the table locally (this device applied that earlier ADD before
+        // ever learning about the DELETE/ADD that superseded it). Clearing
+        // any existing row first makes this idempotent either way: no-op if
+        // it already matches, correct overwrite if it was stale.
+        archivedDao.deleteById(recordId)
         archivedDao.insertIgnoringDuplicate(archived)
     }
 
@@ -671,17 +728,13 @@ class Repository(private val context: Context) {
      * ending up with both a restored Member (from [save]'s own MEMBER/[OP_ADD])
      * and a leftover ArchivedMember for the same person.
      *
-     * NOTE (see [recomputeAndApplyMember]'s doc): a MEMBER/[OP_DELETE]
-     * tombstone, once synced, permanently prevents that same recordId from
-     * reappearing on other devices - an existing property of the Member
-     * sync model this patch doesn't change. Since archiving a member
-     * writes exactly that kind of tombstone for [archived.originalMemberId]
-     * (see [archiveMember]), a peer that already received the archival's
-     * tombstone before this restore's new ADD may not re-materialize the
-     * member even once this ADD arrives; this is a pre-existing limitation
-     * of the tombstone-wins-permanently rule, not something introduced or
-     * fixable here without redesigning that rule (out of scope - see the
-     * task's "do not invent a new conflict-resolution system").
+     * NOTE (see [recomputeAndApplyMember]'s doc): a peer may well already
+     * have this member's earlier MEMBER/[OP_DELETE] tombstone from
+     * [archiveMember] when this restore's new MEMBER/[OP_ADD] reaches it -
+     * whether directly, or later after being offline. [recomputeAndApplyMember]
+     * resolves that by chronological lifecycle order (this ADD's timestamp
+     * vs. that DELETE's), not by "any DELETE anywhere wins", so the member
+     * correctly re-materializes there once this ADD arrives, in either order.
      */
     suspend fun restoreArchivedMember(archived: ArchivedMember): Member {
         val restored = Member(
